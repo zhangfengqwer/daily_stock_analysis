@@ -106,6 +106,26 @@ def _append_history_metadata(response: dict, metadata: Dict[str, Any]) -> dict:
     return response
 
 
+def _market_date_metadata(stock_code: str) -> Dict[str, Any]:
+    """Return market-local date metadata so LLMs do not infer future dates."""
+    try:
+        from src.core.trading_calendar import get_market_for_stock, get_market_now
+
+        market = get_market_for_stock(stock_code)
+        market_now = get_market_now(market)
+        return {
+            "market": market or "unknown",
+            "market_now": market_now.isoformat(),
+            "market_today": market_now.date().isoformat(),
+            "date_semantics": (
+                "Realtime quote values belong to market_today. "
+                "Do not label realtime data as a future trading day unless the provider_timestamp is in that future date."
+            ),
+        }
+    except Exception:
+        return {}
+
+
 def _compact_fundamental_context(fundamental_context: dict) -> dict:
     """Reduce token footprint for tool responses while keeping key semantics."""
     if not isinstance(fundamental_context, dict):
@@ -235,17 +255,22 @@ def _compact_portfolio_risk(risk: dict, top_n: int = 10) -> dict:
 def _handle_get_realtime_quote(stock_code: str) -> dict:
     """Get real-time stock quote."""
     manager = _get_fetcher_manager()
+    date_metadata = _market_date_metadata(stock_code)
     quote = manager.get_realtime_quote(stock_code)
     if quote is None:
         return {
             "error": f"No realtime quote available for {stock_code}",
             "retriable": False,
             "note": "All data sources unavailable (network or circuit-breaker). Skip this tool and proceed with historical data only.",
+            **date_metadata,
         }
 
     return {
         "code": quote.code,
         "name": quote.name,
+        "as_of_date": date_metadata.get("market_today"),
+        "market_today": date_metadata.get("market_today"),
+        "market_now": date_metadata.get("market_now"),
         "price": quote.price,
         "change_pct": quote.change_pct,
         "change_amount": quote.change_amount,
@@ -264,13 +289,19 @@ def _handle_get_realtime_quote(stock_code: str) -> dict:
         "circ_mv": quote.circ_mv,
         "change_60d": quote.change_60d,
         "source": quote.source.value if hasattr(quote.source, 'value') else str(quote.source),
+        "fetched_at": quote.fetched_at,
+        "provider_timestamp": quote.provider_timestamp,
+        "is_stale": quote.is_stale,
+        "stale_seconds": quote.stale_seconds,
+        "date_semantics": date_metadata.get("date_semantics"),
     }
 
 
 get_realtime_quote_tool = ToolDefinition(
     name="get_realtime_quote",
     description="Get real-time stock quote including price, change%, volume ratio, "
-                "turnover rate, PE, PB, market cap. Returns live market data.",
+                "turnover rate, PE, PB, market cap. Returns live market data with "
+                "as_of_date/market_today; do not assign realtime values to future dates.",
     parameters=[
         ToolParameter(
             name="stock_code",
@@ -290,13 +321,14 @@ get_realtime_quote_tool = ToolDefinition(
 def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
     """Get daily OHLCV history data."""
     effective_days, metadata = _normalize_history_days(days)
+    date_metadata = _market_date_metadata(stock_code)
 
     from src.services.history_loader import load_history_df
     df, source = load_history_df(stock_code, days=effective_days)
 
     if df is None or df.empty:
         return _append_history_metadata(
-            {"error": f"No historical data available for {stock_code}"},
+            {"error": f"No historical data available for {stock_code}", **date_metadata},
             metadata,
         )
 
@@ -331,6 +363,12 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
     return _append_history_metadata({
         "code": response_code,
         "source": source,
+        **date_metadata,
+        "latest_date": records[-1].get("date") if records else None,
+        "date_semantics": (
+            f"Historical rows are dated by their own date field. If realtime quote as_of_date is {date_metadata.get('market_today')}, "
+            "merge or discuss it as that same date, not as the next calendar/trading day."
+        ),
         "cache_hit": source == "db_cache",
         "requested_days": effective_days,
         "effective_days": effective_days,
@@ -344,7 +382,8 @@ def _handle_get_daily_history(stock_code: str, days: int = 60) -> dict:
 get_daily_history_tool = ToolDefinition(
     name="get_daily_history",
     description="Get daily OHLCV (open, high, low, close, volume) historical data "
-                "with MA5/MA10/MA20 indicators. Returns the last N trading days.",
+                "with MA5/MA10/MA20 indicators. Returns the last N trading days plus "
+                "market_today/latest_date metadata for date alignment.",
     parameters=[
         ToolParameter(
             name="stock_code",

@@ -468,6 +468,38 @@ def _build_language_section(report_language: str, *, chat_mode: bool = False) ->
 """
 
 
+def _build_market_date_guardrail(stock_code: str, report_language: str) -> str:
+    """Build a short date-alignment reminder for chat turns."""
+    try:
+        from src.core.trading_calendar import get_market_for_stock, get_market_now
+
+        market = get_market_for_stock(stock_code)
+        market_now = get_market_now(market)
+        market_today = market_now.date().isoformat()
+        market_now_text = market_now.isoformat()
+    except Exception:
+        market = None
+        market_today = ""
+        market_now_text = ""
+
+    if not market_today:
+        return ""
+
+    if normalize_report_language(report_language) == "en":
+        return (
+            "[System date constraint]\n"
+            f"- Market: {market or 'unknown'}; market-local current date: {market_today}; current time: {market_now_text}.\n"
+            "- Realtime quote values belong to this date unless the tool result explicitly says otherwise.\n"
+            "- Do not invent or label analysis rows with a future date such as the next calendar/trading day."
+        )
+    return (
+        "[系统日期约束]\n"
+        f"- 当前市场：{market or 'unknown'}；市场本地今天：{market_today}；当前时间：{market_now_text}。\n"
+        "- 实时行情数值默认属于这个日期，除非工具结果明确给出其他 provider_timestamp/as_of_date。\n"
+        "- 禁止把实时行情或盘中分析标成未来日期、下一日或下一交易日。"
+    )
+
+
 # ============================================================
 # Agent Executor
 # ============================================================
@@ -558,7 +590,12 @@ class AgentExecutor:
         """
         from src.agent.conversation import conversation_manager
 
-        scope_resolution = resolve_stock_scope(message, context)
+        config = getattr(self.llm_adapter, "_config", None) or get_config()
+        scope_resolution = resolve_stock_scope(
+            message,
+            context,
+            guard_enabled=getattr(config, "agent_stock_scope_guard_enabled", True),
+        )
         context = scope_resolution.effective_context
 
         # Build system prompt with skills
@@ -590,13 +627,16 @@ class AgentExecutor:
 
         # Get conversation history
         conversation_manager.get_or_create(session_id)
-        config = getattr(self.llm_adapter, "_config", None) or get_config()
         bundle = build_agent_chat_context_bundle(session_id, self.llm_adapter, config)
 
         # Initialize conversation
         messages: List[Dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
         ]
+        date_guardrail = _build_market_date_guardrail(stock_code, report_language)
+        if date_guardrail:
+            messages.append({"role": "user", "content": date_guardrail})
+            messages.append({"role": "assistant", "content": "我会按当前市场日期对齐实时行情和历史K线，不把盘中数据标成未来日期。"})
         messages.extend(bundle.context_messages)
 
         # Inject previous analysis context if provided (data reuse from report follow-up)

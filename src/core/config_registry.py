@@ -3556,6 +3556,32 @@ _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         ],
         "warning_codes": [],
     },
+    "AGENT_STOCK_SCOPE_GUARD_ENABLED": {
+        "title": "Ask Stock Scope Guard",
+        "description": "Restrict ask-stock tool calls to the active stock or stocks explicitly allowed by switch/compare intent. Disable to allow follow-up chat turns to query any explicit stock code.",
+        "category": "agent",
+        "data_type": "boolean",
+        "ui_control": "switch",
+        "is_sensitive": False,
+        "is_required": False,
+        "is_editable": True,
+        "default_value": "true",
+        "options": [],
+        "validation": {},
+        "display_order": 64,
+        "help_key": "settings.agent.AGENT_STOCK_SCOPE_GUARD_ENABLED",
+        "examples": [
+            "AGENT_STOCK_SCOPE_GUARD_ENABLED=true",
+            "AGENT_STOCK_SCOPE_GUARD_ENABLED=false",
+        ],
+        "docs": [
+            {
+                "label": "完整指南：Agent 配置",
+                "href": "https://github.com/ZhuLinsen/daily_stock_analysis/blob/main/docs/full-guide.md#环境变量完整列表",
+            },
+        ],
+        "warning_codes": [],
+    },
     "AGENT_DEEP_RESEARCH_BUDGET": {
         "title": "Deep Research Token Budget",
         "description": "Maximum token budget for Deep Research planning, follow-up research, and final synthesis.",

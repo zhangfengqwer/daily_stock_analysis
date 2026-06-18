@@ -729,6 +729,7 @@ class Config:
     agent_orchestrator_mode: str = "standard"  # Orchestrator mode: quick/standard/full/specialist
     agent_orchestrator_timeout_s: int = 600  # Cooperative timeout budget for the whole multi-agent pipeline
     agent_risk_override: bool = True  # Allow risk agent to veto buy signals
+    agent_stock_scope_guard_enabled: bool = True  # Restrict ask-stock tools to current/explicit symbols
     agent_deep_research_budget: int = 30000  # Max token budget for deep research
     agent_deep_research_timeout: int = 180  # Max seconds for /research command before returning timeout
     agent_memory_enabled: bool = False  # Enable memory & calibration system
@@ -1521,6 +1522,10 @@ class Config:
                 minimum=0,
             ),
             agent_risk_override=os.getenv('AGENT_RISK_OVERRIDE', 'true').lower() == 'true',
+            agent_stock_scope_guard_enabled=parse_env_bool(
+                os.getenv('AGENT_STOCK_SCOPE_GUARD_ENABLED'),
+                default=True,
+            ),
             agent_deep_research_budget=parse_env_int(
                 os.getenv('AGENT_DEEP_RESEARCH_BUDGET'),
                 30000,

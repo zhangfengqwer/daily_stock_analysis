@@ -17,6 +17,8 @@ import unittest
 import sys
 import os
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -33,6 +35,7 @@ from src.agent.executor import (
     LEGACY_DEFAULT_AGENT_SYSTEM_PROMPT,
     AgentExecutor,
     AgentResult,
+    _build_market_date_guardrail,
 )
 from src.agent.llm_adapter import LLMResponse, ToolCall
 from src.agent.runner import parse_dashboard_json, run_agent_loop, serialize_tool_result
@@ -339,6 +342,99 @@ class TestAgentExecutor(unittest.TestCase):
         self.assertEqual(result.stock_scope.mode, "maintain")
         self.assertEqual(result.effective_context["stock_code"], "600519")
         self.assertEqual(result.stock_scope.allowed_stock_codes, {"600519"})
+
+    def test_resolve_stock_scope_disabled_switches_single_explicit_new_code(self):
+        result = resolve_stock_scope(
+            "588950 这只",
+            {"stock_code": "510880", "stock_name": "红利ETF华泰柏瑞", "previous_price": 3.1},
+            guard_enabled=False,
+        )
+
+        self.assertIsNone(result.stock_scope)
+        self.assertEqual(result.effective_context["stock_code"], "588950")
+        self.assertEqual(result.effective_context["stock_name"], "")
+        self.assertNotIn("previous_price", result.effective_context)
+
+    def test_chat_disables_stock_scope_guard_from_config(self):
+        registry = _make_registry_with_echo()
+        adapter = _make_mock_adapter()
+        adapter._config = SimpleNamespace(
+            agent_stock_scope_guard_enabled=False,
+            agent_context_compression_enabled=False,
+        )
+        executor = AgentExecutor(registry, adapter, max_steps=2)
+        captured = {}
+
+        def fake_run_loop(messages, tool_decls, parse_dashboard, progress_callback=None, stock_scope=None):
+            captured["messages"] = messages
+            captured["stock_scope"] = stock_scope
+            return AgentResult(success=True, content="assistant reply")
+
+        with patch.object(executor, "_run_loop", side_effect=fake_run_loop):
+            with patch(
+                "src.agent.executor.build_agent_chat_context_bundle",
+                return_value=SimpleNamespace(context_messages=[], diagnostics={}),
+            ):
+                with patch("src.agent.conversation.conversation_manager.get_or_create"):
+                    with patch("src.agent.conversation.conversation_manager.add_message"):
+                        executor.chat(
+                            "588950 这只",
+                            "session-unrestricted-scope",
+                            context={"stock_code": "510880", "stock_name": "红利ETF华泰柏瑞"},
+                        )
+
+        self.assertIsNone(captured["stock_scope"])
+        context_messages = [
+            message["content"]
+            for message in captured["messages"]
+            if message["role"] == "user"
+            and message["content"].startswith("[系统提供的历史分析上下文")
+        ]
+        self.assertTrue(context_messages)
+        self.assertIn("股票代码: 588950", context_messages[0])
+
+    def test_chat_injects_market_date_guardrail(self):
+        registry = _make_registry_with_echo()
+        adapter = _make_mock_adapter()
+        adapter._config = SimpleNamespace(
+            agent_stock_scope_guard_enabled=True,
+            agent_context_compression_enabled=False,
+        )
+        executor = AgentExecutor(registry, adapter, max_steps=2)
+        captured = {}
+
+        def fake_run_loop(messages, tool_decls, parse_dashboard, progress_callback=None, stock_scope=None):
+            captured["messages"] = messages
+            return AgentResult(success=True, content="assistant reply")
+
+        fixed_now = datetime(2026, 6, 18, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch("src.core.trading_calendar.get_market_now", return_value=fixed_now):
+            with patch.object(executor, "_run_loop", side_effect=fake_run_loop):
+                with patch(
+                    "src.agent.executor.build_agent_chat_context_bundle",
+                    return_value=SimpleNamespace(context_messages=[], diagnostics={}),
+                ):
+                    with patch("src.agent.conversation.conversation_manager.get_or_create"):
+                        with patch("src.agent.conversation.conversation_manager.add_message"):
+                            executor.chat(
+                                "分析今天量能",
+                                "session-date-guardrail",
+                                context={"stock_code": "600036", "stock_name": "招商银行"},
+                            )
+
+        contents = [message["content"] for message in captured["messages"]]
+        guardrails = [content for content in contents if "[系统日期约束]" in content]
+        self.assertEqual(len(guardrails), 1)
+        self.assertIn("市场本地今天：2026-06-18", guardrails[0])
+        self.assertIn("禁止把实时行情或盘中分析标成未来日期", guardrails[0])
+
+    def test_market_date_guardrail_uses_market_local_today(self):
+        fixed_now = datetime(2026, 6, 18, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+        with patch("src.core.trading_calendar.get_market_now", return_value=fixed_now):
+            guardrail = _build_market_date_guardrail("600036", "zh")
+
+        self.assertIn("市场本地今天：2026-06-18", guardrail)
+        self.assertIn("禁止把实时行情或盘中分析标成未来日期", guardrail)
 
     def test_run_agent_loop_blocks_conflicting_stock_scoped_tool_and_keeps_tool_result(self):
         executed_calls = []

@@ -731,6 +731,17 @@ const settingsHelpZhCN: SettingsHelpMap = {
     impact: ['影响最终投资建议的风险保守程度。'],
     notes: ['关闭后风险 Agent 的意见仅作参考，不会否决决策。'],
   },
+  'settings.agent.AGENT_STOCK_SCOPE_GUARD_ENABLED': {
+    title: '问股标的范围护栏',
+    summary: '限制问股工具只能查询当前标的，或本轮明确切换/比较的股票代码。',
+    usage: '默认开启。若需要在同一个问股会话里直接追问其他代码，可设为 false。',
+    valueNotes: [
+      'true 会阻断模型误查非当前标的的实时行情、历史行情等工具调用。',
+      'false 会放开工具范围；当消息里只有一个新代码时，本轮上下文会切到该代码。',
+    ],
+    impact: ['影响 Web 问股/Agent chat 的跨标的追问能力和防误查保护。'],
+    notes: ['关闭后请尽量在问题里写明目标代码，避免模型把上下文中的旧标的和新标的混用。'],
+  },
   'settings.agent.DEEP_RESEARCH': {
     title: 'Deep Research',
     summary: '控制 Deep Research 的 token 预算和超时。',
@@ -1696,6 +1707,17 @@ const settingsHelpEnUS: SettingsHelpMap = {
     valueNotes: ['Only effective when AGENT_ORCHESTRATOR_MODE includes the risk stage.'],
     impact: ['Affects the risk conservatism of final investment recommendations.'],
     notes: ['When disabled, the risk agent opinion is advisory only and cannot override decisions.'],
+  },
+  'settings.agent.AGENT_STOCK_SCOPE_GUARD_ENABLED': {
+    title: 'Ask Stock Scope Guard',
+    summary: 'Restricts ask-stock tools to the active stock, or to symbols explicitly switched to or compared in the current turn.',
+    usage: 'Enabled by default. Set false when you want to ask about other stock codes directly in the same chat session.',
+    valueNotes: [
+      'true blocks accidental realtime/history tool calls for unrelated symbols.',
+      'false removes the tool guard; when the message contains exactly one new code, the current turn switches context to that code.',
+    ],
+    impact: ['Affects cross-symbol follow-up chat and protection against accidental off-symbol tool calls.'],
+    notes: ['When disabled, include the intended stock code clearly to avoid mixing the old and new symbols.'],
   },
   'settings.agent.DEEP_RESEARCH': {
     title: 'Deep Research',

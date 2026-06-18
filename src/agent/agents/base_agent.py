@@ -173,6 +173,10 @@ class BaseAgent(ABC):
                 if role in {"user", "assistant", "system"} and isinstance(content, str) and content:
                     messages.append({"role": role, "content": content})
 
+        date_guardrail = ctx.meta.get("date_guardrail")
+        if isinstance(date_guardrail, str) and date_guardrail:
+            messages.append({"role": "user", "content": date_guardrail})
+
         report_language = normalize_report_language(ctx.meta.get("report_language", "zh"))
         market_phase_section = format_market_phase_prompt_section(
             ctx.meta.get("market_phase_context"),

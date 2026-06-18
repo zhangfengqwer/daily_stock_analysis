@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """Tests for Agent get_daily_history DB cache reuse."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Optional
 import unittest
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from src.agent.tools.data_tools import _handle_get_daily_history
+from data_provider.realtime_types import RealtimeSource, UnifiedRealtimeQuote
+from src.agent.tools.data_tools import _handle_get_daily_history, _handle_get_realtime_quote
 from src.services.history_loader import reset_frozen_target_date, set_frozen_target_date
 
 
@@ -83,6 +85,53 @@ class DailyHistoryCacheToolTest(unittest.TestCase):
             return _handle_get_daily_history(stock_code, days=days)
         finally:
             reset_frozen_target_date(token)
+
+    def test_daily_history_includes_market_date_metadata(self):
+        fake_df = pd.DataFrame(
+            [
+                {
+                    "code": "600036",
+                    "date": pd.Timestamp("2026-06-17"),
+                    "open": 38.0,
+                    "high": 39.0,
+                    "low": 37.0,
+                    "close": 38.23,
+                    "volume": 1000,
+                    "amount": 10000,
+                    "pct_chg": -0.88,
+                }
+            ]
+        )
+        fixed_now = datetime(2026, 6, 18, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+        with patch("src.services.history_loader.load_history_df", return_value=(fake_df, "db_cache")), \
+             patch("src.core.trading_calendar.get_market_now", return_value=fixed_now):
+            result = _handle_get_daily_history("600036", days=5)
+
+        self.assertEqual(result["market_today"], "2026-06-18")
+        self.assertEqual(result["latest_date"], "2026-06-17 00:00:00")
+        self.assertIn("not as the next calendar/trading day", result["date_semantics"])
+
+    def test_realtime_quote_includes_as_of_date_metadata(self):
+        quote = UnifiedRealtimeQuote(
+            code="600036",
+            name="招商银行",
+            source=RealtimeSource.TUSHARE,
+            price=37.44,
+            change_pct=-2.07,
+            provider_timestamp="2026-06-18T11:52:32+08:00",
+        )
+        manager = SimpleNamespace(get_realtime_quote=MagicMock(return_value=quote))
+        fixed_now = datetime(2026, 6, 18, 12, 30, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+        with patch("src.agent.tools.data_tools._get_fetcher_manager", return_value=manager), \
+             patch("src.core.trading_calendar.get_market_now", return_value=fixed_now):
+            result = _handle_get_realtime_quote("600036")
+
+        self.assertEqual(result["as_of_date"], "2026-06-18")
+        self.assertEqual(result["market_today"], "2026-06-18")
+        self.assertEqual(result["provider_timestamp"], "2026-06-18T11:52:32+08:00")
+        self.assertIn("Do not label realtime data as a future trading day", result["date_semantics"])
 
     def test_uses_fresh_partial_db_cache_without_fetching(self) -> None:
         target = date(2026, 4, 24)

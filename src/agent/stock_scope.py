@@ -113,7 +113,7 @@ def extract_stock_codes(text: str) -> List[str]:
         (r"(?<![a-zA-Z])(?:SH|SZ|BJ)\d{6}(?!\d)", re.IGNORECASE),
         (r"(?<![a-zA-Z])hk\d{4,5}(?!\d)", re.IGNORECASE),
         (r"(?<![a-zA-Z])\d{1,5}\.HK(?![a-zA-Z])", re.IGNORECASE),
-        (r"(?<!\d)(?:[03648]\d{5}|92\d{4})(?!\d)", 0),
+        (r"(?<!\d)(?:[035648]\d{5}|92\d{4})(?!\d)", 0),
         (r"(?<!\d)\d{5}(?!\d)", 0),
         (r"(?<![a-zA-Z.])([A-Z]{2,5}(?:\.[A-Z]{1,2})?)(?![a-zA-Z0-9])", 0),
     ):
@@ -180,6 +180,7 @@ def resolve_stock_scope(
     context: Optional[Dict[str, Any]],
     *,
     skills: Optional[Iterable[str]] = None,
+    guard_enabled: bool = True,
 ) -> StockScopeResolution:
     """Resolve the effective context and stock tool scope for one chat turn."""
     original_context = dict(context or {})
@@ -191,6 +192,18 @@ def resolve_stock_scope(
         original_context.pop("stock_code", None)
         original_context.pop("stock_name", None)
         current_code = ""
+
+    if not guard_enabled:
+        candidates = extract_stock_codes(message_text)
+        effective_context = dict(original_context)
+        if len(candidates) == 1 and candidates[0] != current_code:
+            effective_context = _switch_context(original_context, candidates[0])
+        elif current_code:
+            effective_context["stock_code"] = current_code
+        return StockScopeResolution(
+            effective_context=_with_skills(effective_context, skills),
+            stock_scope=None,
+        )
 
     if not current_code:
         if invalid_context_code:

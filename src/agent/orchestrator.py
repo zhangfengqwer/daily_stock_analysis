@@ -311,17 +311,28 @@ class AgentOrchestrator:
         coordination.
         """
         from src.agent.executor import AgentResult
+        from src.agent.executor import _build_market_date_guardrail
         from src.agent.conversation import conversation_manager
 
-        scope_resolution = resolve_stock_scope(message, context)
+        config = self.config or getattr(self.llm_adapter, "_config", None) or get_config()
+        scope_resolution = resolve_stock_scope(
+            message,
+            context,
+            guard_enabled=getattr(config, "agent_stock_scope_guard_enabled", True),
+        )
         ctx = self._build_context(message, scope_resolution.effective_context)
         ctx.session_id = session_id
         ctx.meta["response_mode"] = "chat"
+        date_guardrail = _build_market_date_guardrail(
+            ctx.stock_code,
+            ctx.meta.get("report_language", "zh"),
+        )
+        if date_guardrail:
+            ctx.meta["date_guardrail"] = date_guardrail
         if scope_resolution.stock_scope is not None:
             ctx.meta["stock_scope"] = scope_resolution.stock_scope
 
         conversation_manager.get_or_create(session_id)
-        config = self.config or getattr(self.llm_adapter, "_config", None) or get_config()
         history = build_visible_chat_history(session_id, self.llm_adapter, config)
         if history:
             ctx.meta["conversation_history"] = history
