@@ -16,7 +16,14 @@ tushare>=1.4.0              # Priority 2: Tushare Pro API
 pytdx>=1.72                 # Priority 2: Tongdaxin quote servers
 baostock>=0.8.0             # Priority 3: Baostock data
 yfinance>=0.2.0             # Priority 4: Yahoo Finance (Fallback)
-longbridge>=0.2.77           # Priority 5: Longbridge OpenAPI fallback for US/HK stocks; OAuth capability checked at runtime
+# Priority 5: Longbridge OpenAPI fallback for US/HK stocks; OAuth capability checked at runtime.
+# 可选依赖，未安装时 data_provider/longbridge_fetcher.py 会自动降级（所有 import 均在函数内并由 try/except 包裹）。
+# 需要美股/港股的量比、换手率、PE 等字段兜底时，手动安装：
+#     pip install "longbridge>=4.4.0"
+# 之所以不作为必需依赖：longbridge 4.x 只提供 manylinux_2_39 wheel（需 glibc >= 2.39），
+# 而本项目 Docker 基础镜像 python:3.11-slim-bookworm 为 Debian 12（glibc 2.36），无法安装；
+# 旧的 0.2.x 系列最高只到 0.2.74。两者互斥会导致 Docker 构建直接失败。
+# longbridge>=4.4.0
 tickflow>=0.1.0            # TickFlow official SDK (Issue #632, market review enhancement)
 # Built-in optional AlphaSift screening engine
 git+https://github.com/ZhuLinsen/alphasift.git@14e74fc0819267f7c04c3117a0dd0fe3f9b19404#egg=alphasift

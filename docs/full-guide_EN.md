@@ -1016,6 +1016,7 @@ System defaults to AkShare (free), also supports other data sources:
 
 ### Longbridge
 - Optional fallback for US/HK stocks, mainly used to supplement fields that YFinance may miss
+- The `longbridge` SDK is **not** a required dependency. Install it manually when you need the US/HK fallback: `pip install "longbridge>=4.4.0"`. Without it, the Longbridge data source is skipped automatically and nothing else is affected. (4.x ships only `manylinux_2_39` wheels, which need glibc >= 2.39, so older distributions such as Debian 12 cannot install it.)
 - New integrations should use Longbridge OAuth 2.0: the client id is read from `LONGBRIDGE_OAUTH_CLIENT_ID`, or from `LONGBRIDGE_APP_KEY` when no Legacy Access Token is configured; run `python scripts/generate_longbridge_oauth_token.py --client-id <client_id>` once on an interactive machine to generate the SDK token cache
 - For GitHub Actions / Docker headless runs, base64 the local `~/.longbridge/openapi/tokens/<client_id>` file and store it as `LONGBRIDGE_OAUTH_TOKEN_CACHE_B64`
 - OAuth runtime support requires SDK APIs `OAuthBuilder` and `Config.from_oauth`; if a Linux/Docker environment can only install the older SDK, the app logs a clear warning and skips Longbridge while keeping YFinance / AkShare fallback available

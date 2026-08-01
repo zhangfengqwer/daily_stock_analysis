@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] 将 `longbridge` 移出必需依赖，修复 Docker 构建失败。`requirements.txt` 原先要求 `longbridge>=0.2.77`，但该版本从未发布（0.2.x 最高 0.2.74），能满足该约束的 4.x 仅提供 manylinux_2_39 wheel（需 glibc >= 2.39），与基础镜像 `python:3.11-slim-bookworm`（Debian 12，glibc 2.36）互斥。该 SDK 的导入本就在函数内并由 try/except 包裹，未安装时自动降级；需要美股/港股兜底者手动 `pip install "longbridge>=4.4.0"`。
+
 - [新功能] 新增 Android 移动端 App（Capacitor 壳 + dsa-web mobile 构建模式），提供每日分析报告与 AI 对话问股两个功能，底部三 tab 导航，服务器地址运行时可配置。
 - [新功能] Session Cookie 的 SameSite 支持通过 `ADMIN_SESSION_COOKIE_SAMESITE` 配置，默认 `lax` 保持原行为，设为 `none` 时强制 `Secure`，供移动端跨站访问使用。
 - [改进] CORS 默认白名单加入 `https://localhost`，使 Capacitor 客户端无需额外配置 `CORS_ORIGINS` 即可开箱使用。
