@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [新功能] 新增 Android 移动端 App（Capacitor 壳 + dsa-web mobile 构建模式），提供每日分析报告与 AI 对话问股两个功能，底部三 tab 导航，服务器地址运行时可配置。
+- [新功能] Session Cookie 的 SameSite 支持通过 `ADMIN_SESSION_COOKIE_SAMESITE` 配置，默认 `lax` 保持原行为，设为 `none` 时强制 `Secure`，供移动端跨站访问使用。
+- [改进] CORS 默认白名单加入 `https://localhost`，使 Capacitor 客户端无需额外配置 `CORS_ORIGINS` 即可开箱使用。
+- [改进] Web 前端 API base URL 改为运行时解析，Web 端默认值仍为同源空字符串，行为不变。
+- [文档] 新增 `docs/mobile-package.md`，说明移动端架构、后端 HTTPS 部署要求、Android SDK 前置条件、APK 构建与排障。
+- [文档] `docs/DEPLOY.md` 与 `docs/DEPLOY_EN.md` 补充「移动端接入」章节，覆盖 HTTPS 必要性、必需配置项、反向代理 SSE 缓冲设置与 Cookie 验证方法。
+
 - [修复] AlphaSift 热点题材刷新在 EastMoney 瞬断且无缓存时返回友好空态，并让桌面更新保留 AlphaSift 热点缓存。
 - [修复] 问股从历史报告进入后的追问会持续携带当前标的，切回或重载已有会话时可从历史消息恢复基础当前标的，并由后端阻断未明确切换时的错误股票工具调用、交易所片段和指标缩写误路由。
 - [修复] 自选股加入和删除按等价股票代码匹配港股及大小写美股变体，避免 `00700`、`HK00700`、`00700.HK` 或 `aapl`、`AAPL` 被误判为不同标的。

@@ -221,6 +221,67 @@ journalctl -u stock-analyzer -f
 
 ---
 
+## 📱 移动端接入（Android App）
+
+如果你要用 Android App 连接这台服务器，部署要求与纯 Web 使用**不同**，需额外满足三点。完整说明见 [移动端打包说明](mobile-package.md)。
+
+### 必须走 HTTPS
+
+App 的 WebView origin 固定为 `https://localhost`，访问你的后端属于**跨站**。跨站携带 Cookie 要求 `SameSite=None`，而浏览器强制规定该值必须搭配 `Secure` —— 只在 HTTPS 下生效。
+
+因此 `http://IP:8000` 这种访问方式对 App 不可用，症状是**登录看似成功，随后每个请求都 401**。
+
+### 必需的配置项
+
+```bash
+ADMIN_AUTH_ENABLED=true
+ADMIN_SESSION_COOKIE_SAMESITE=none
+TRUST_X_FORWARDED_FOR=true
+```
+
+`ADMIN_SESSION_COOKIE_SAMESITE` 默认为 `lax`，不设置时 Web 与桌面端行为完全不变；设为 `none` 时后端会强制 `Secure`。`https://localhost` 已在 CORS 默认白名单中，无需配置 `CORS_ORIGINS`。
+
+> ⚠️ **不要设 `CORS_ALLOW_ALL=true`** —— 它会令 `allow_credentials=False`，与 Cookie 认证互斥，等同于关闭认证。
+>
+> ⚠️ `SameSite=None` 会削弱浏览器端 CSRF 防护，请勿在 `ADMIN_AUTH_ENABLED=false` 时开启。
+
+### 反向代理配置（Caddy 示例）
+
+先让容器只监听本机，修改 `docker/docker-compose.yml` 的 `server` 服务：
+
+```yaml
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:${API_PORT:-8000}"
+```
+
+`/etc/caddy/Caddyfile`：
+
+```
+dsa.your-domain.com {
+	reverse_proxy 127.0.0.1:8000 {
+		# 对话页是 SSE 流式输出，必须关闭响应缓冲
+		flush_interval -1
+	}
+}
+```
+
+用 Nginx 的话对应配置是 `proxy_buffering off;`。**漏掉这项，对话会变成等待很久后一次性输出全文。**
+
+安全组放行 80 与 443（80 用于 Let's Encrypt 签发与续期），8000 无需放行。
+
+> **若使用 Cloudflare，该子域名建议设为「DNS only」（灰色云朵）。** 免费版代理对流式响应有缓冲行为且存在约 100 秒空闲超时，可能截断长时间的 LLM 分析。
+
+### 验证
+
+```bash
+curl -si -X POST https://dsa.your-domain.com/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"password":"<你的密码>"}' | grep -i set-cookie
+```
+
+响应必须**同时**包含 `SameSite=None` 与 `Secure`，缺任一项 App 都会登录后 401。
+
+---
+
 ## 🌐 代理配置
 
 如果服务器在国内，访问 Gemini API 需要代理：

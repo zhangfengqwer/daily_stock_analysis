@@ -209,6 +209,67 @@ journalctl -u stock-analyzer -f
 
 ---
 
+## Mobile Client (Android App)
+
+Connecting the Android App to this server has **different** requirements than plain Web usage. See [Mobile Packaging Guide](mobile-package.md) for the full walkthrough.
+
+### HTTPS is mandatory
+
+The App's WebView origin is fixed at `https://localhost`, so requests to your backend are **cross-site**. Sending cookies cross-site requires `SameSite=None`, and browsers mandate that this value be paired with `Secure` — which only takes effect over HTTPS.
+
+Plain `http://IP:8000` therefore does not work for the App. The symptom is that **login appears to succeed and every subsequent request returns 401**.
+
+### Required configuration
+
+```bash
+ADMIN_AUTH_ENABLED=true
+ADMIN_SESSION_COOKIE_SAMESITE=none
+TRUST_X_FORWARDED_FOR=true
+```
+
+`ADMIN_SESSION_COOKIE_SAMESITE` defaults to `lax`; leaving it unset keeps Web and Desktop behavior completely unchanged. When set to `none`, the backend forces `Secure`. `https://localhost` is already in the default CORS allowlist, so `CORS_ORIGINS` needs no configuration.
+
+> ⚠️ **Do not set `CORS_ALLOW_ALL=true`** — it forces `allow_credentials=False`, which is mutually exclusive with cookie authentication and effectively disables auth.
+>
+> ⚠️ `SameSite=None` weakens browser-side CSRF protection. Do not enable it while `ADMIN_AUTH_ENABLED=false`.
+
+### Reverse proxy (Caddy example)
+
+First bind the container to loopback only, in the `server` service of `docker/docker-compose.yml`:
+
+```yaml
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:${API_PORT:-8000}"
+```
+
+`/etc/caddy/Caddyfile`:
+
+```
+dsa.your-domain.com {
+	reverse_proxy 127.0.0.1:8000 {
+		# The chat page streams over SSE; response buffering must be disabled
+		flush_interval -1
+	}
+}
+```
+
+The Nginx equivalent is `proxy_buffering off;`. **Omitting this makes the chat wait a long time and then dump the whole answer at once.**
+
+Open ports 80 and 443 in your security group (80 is needed for Let's Encrypt issuance and renewal). Port 8000 does not need to be exposed.
+
+> **If you use Cloudflare, set this subdomain to "DNS only" (grey cloud).** The free-tier proxy buffers streaming responses and has an idle timeout of roughly 100 seconds, which can truncate long-running LLM analysis.
+
+### Verification
+
+```bash
+curl -si -X POST https://dsa.your-domain.com/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"password":"<your-password>"}' | grep -i set-cookie
+```
+
+The response must contain **both** `SameSite=None` and `Secure`. If either is missing, the App will 401 right after login.
+
+---
+
 ## Proxy Configuration
 
 If server is in mainland China, accessing Gemini API requires proxy:
