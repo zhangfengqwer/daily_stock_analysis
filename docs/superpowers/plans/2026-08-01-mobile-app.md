@@ -1008,7 +1008,13 @@ git commit -m "feat(web): add mobile shell with bottom tab navigation"
 
 ### Task 5: MobileSettingsPage 与首启引导
 
-替换 Task 3 的占位 `MobileSettingsPage`。提供后端地址的读写与连接测试，并在地址未配置时先走引导。地址持久化用 `@capacitor/preferences`，但为了让本任务能在 vitest / 浏览器中独立验证，存储通过一个薄封装隔离，Web 环境降级到 `localStorage`。
+替换 Task 3 的占位 `MobileSettingsPage`。提供后端地址的读写与连接测试，并在地址未配置时先走引导。地址持久化用 Capacitor 的 Preferences 插件，Web / 测试环境降级到 `localStorage`。
+
+> **实施中发现并已修正（三处）：**
+>
+> 1. **不能 `import('@capacitor/preferences')`**，即使包在动态 import 里、外面裹 try/catch 也不行。Vite 的 `vite:import-analysis` 在**转换阶段**就会因解析不到该包而报错，那是构建期错误，运行时的 try/catch 挡不住。改为读取 Capacitor 注入到 `window.Capacitor.Plugins.Preferences` 的插件，`dsa-web` 因此完全不依赖 Capacitor —— 这反而更贴合「壳持有 Capacitor、dsa-web 只有 UI」的架构。副产物是原生分支变得可 stub、可测，实际测试覆盖比原计划更全。
+> 2. **`getWebBuildInfo()` 不存在。** `apps/dsa-web/src/utils/constants.ts` 导出的是常量 `WEB_BUILD_INFO`（用法见 `SettingsPage.tsx:747`），应使用 `WEB_BUILD_INFO.version`。
+> 3. **组件测试必须显式 pin UI 语言。** jsdom 的 locale 是 `en-US`，`UiLanguageProvider` 会默认英文，中文断言会全部失败。按仓库既有约定（见 `AlertRuleForm.test.tsx:29`），在渲染前 `window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, 'en')` 并使用英文断言。注意要放在 `localStorage.clear()` 之后。
 
 **Files:**
 - Create: `apps/dsa-web/src/utils/serverAddressStore.ts`

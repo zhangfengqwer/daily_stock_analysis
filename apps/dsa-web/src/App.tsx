@@ -9,6 +9,7 @@ import {
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { UiLanguageProvider, useUiLanguage } from './contexts/UiLanguageContext';
 import { useAgentChatStore } from './stores/agentChatStore';
+import { MobileBootstrap } from './components/layout/MobileBootstrap';
 import MobileRouteTree from './routes/MobileRouteTree';
 import WebRouteTree from './routes/WebRouteTree';
 import './App.css';
@@ -66,12 +67,17 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  const tree = (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+
   return (
     <UiLanguageProvider>
       <Router>
-        <AuthProvider>
-          <AppContent />
-        </AuthProvider>
+        {/* 与路由树同理：直接比较构建期常量，Web 构建下 Rollup 会折叠分支并丢弃 MobileBootstrap。 */}
+        {__APP_TARGET__ === 'mobile' ? <MobileBootstrap>{tree}</MobileBootstrap> : tree}
       </Router>
     </UiLanguageProvider>
   );
