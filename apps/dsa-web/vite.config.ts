@@ -90,36 +90,44 @@ const getVendorChunkName = (id: string): string | undefined => {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
-  define: {
-    __APP_PACKAGE_VERSION__: JSON.stringify(packageJson.version ?? '0.0.0'),
-    __APP_BUILD_TIME__: JSON.stringify(buildTime),
-  },
-  plugins: [
-    react({
-      babel: {
-        plugins: [['babel-plugin-react-compiler']],
-      },
-    }),
-  ],
-  server: {
-    host: '0.0.0.0',  // 允许公网访问
-    port: 5173,       // 默认端口
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const isMobile = mode === 'mobile'
+
+  return {
+    define: {
+      __APP_PACKAGE_VERSION__: JSON.stringify(packageJson.version ?? '0.0.0'),
+      __APP_BUILD_TIME__: JSON.stringify(buildTime),
+      __APP_TARGET__: JSON.stringify(isMobile ? 'mobile' : 'web'),
+    },
+    plugins: [
+      react({
+        babel: {
+          plugins: [['babel-plugin-react-compiler']],
+        },
+      }),
+    ],
+    server: {
+      host: '0.0.0.0',  // 允许公网访问
+      port: 5173,       // 默认端口
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:8000',
+          changeOrigin: true,
+        },
       },
     },
-  },
-  build: {
-    // 打包输出到项目根目录的 static 文件夹
-    outDir: path.resolve(__dirname, '../../static'),
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks: getVendorChunkName,
+    build: {
+      // web 模式打包到项目根目录的 static 供 FastAPI 托管；
+      // mobile 模式打包到 Capacitor 壳的 www，两者不得互相覆盖。
+      outDir: isMobile
+        ? path.resolve(__dirname, '../dsa-mobile/www')
+        : path.resolve(__dirname, '../../static'),
+      emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          manualChunks: getVendorChunkName,
+        },
       },
     },
-  },
+  }
 })

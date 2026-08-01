@@ -1,27 +1,19 @@
 import type React from 'react';
 import { lazy, useEffect } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { ApiErrorAlert, Shell } from './components/common';
+import { BrowserRouter as Router, Navigate, useLocation } from 'react-router-dom';
+import { ApiErrorAlert } from './components/common';
 import {
   PageLoadingFallback,
-  RouteOutletBoundary,
   StandaloneRouteBoundary,
 } from './components/layout/RouteBoundary';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { UiLanguageProvider, useUiLanguage } from './contexts/UiLanguageContext';
 import { useAgentChatStore } from './stores/agentChatStore';
+import MobileRouteTree from './routes/MobileRouteTree';
+import WebRouteTree from './routes/WebRouteTree';
 import './App.css';
 
-const HomePage = lazy(() => import('./pages/HomePage'));
-const BacktestPage = lazy(() => import('./pages/BacktestPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
-const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
-const ChatPage = lazy(() => import('./pages/ChatPage'));
-const PortfolioPage = lazy(() => import('./pages/PortfolioPage'));
-const AlertsPage = lazy(() => import('./pages/AlertsPage'));
-const TokenUsagePage = lazy(() => import('./pages/TokenUsagePage'));
-const StockScreeningPage = lazy(() => import('./pages/StockScreeningPage'));
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -69,27 +61,8 @@ const AppContent: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
-  return (
-    <Routes>
-      <Route
-        element={(
-          <Shell>
-            <RouteOutletBoundary />
-          </Shell>
-        )}
-      >
-        <Route path="/" element={<HomePage />} />
-        <Route path="/chat" element={<ChatPage />} />
-        <Route path="/portfolio" element={<PortfolioPage />} />
-        <Route path="/screening" element={<StockScreeningPage />} />
-        <Route path="/backtest" element={<BacktestPage />} />
-        <Route path="/alerts" element={<AlertsPage />} />
-        <Route path="/usage" element={<TokenUsagePage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Route>
-    </Routes>
-  );
+  // 直接比较构建期常量，使 Rollup 能折叠分支并整模块丢弃未使用的那棵路由树。
+  return __APP_TARGET__ === 'mobile' ? <MobileRouteTree /> : <WebRouteTree />;
 };
 
 const App: React.FC = () => {

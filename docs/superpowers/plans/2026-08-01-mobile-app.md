@@ -448,6 +448,10 @@ git commit -m "feat(web): resolve API base URL at runtime"
 
 引入构建期常量 `__APP_TARGET__`，据此切换输出目录并裁剪路由。关键点是让未使用的 6 个页面被 Rollup 整模块丢弃 —— 因此两套路由树必须放在各自的模块里，`lazy()` 调用也在模块内部，这样死分支消除后整个模块不可达即被移除。
 
+> **实施中发现并已修正：** 仅把 `lazy()` 放进独立模块 **不足以** 触发裁剪。Rollup 把模块顶层的 `lazy(...)` 调用表达式视为副作用，因而即使该模块只在被折叠掉的死分支里用到，模块仍会被保留，其动态 import 的页面 chunk 照样产出（实测 mobile 产物仍含 BacktestPage / PortfolioPage / StockScreeningPage / AlertsPage / TokenUsagePage / SettingsPage）。
+>
+> 必须给每个 `lazy()` 加 `/* @__PURE__ */` 注解，声明其无副作用，Rollup 才会连模块一起丢弃。两棵路由树都要加：`WebRouteTree` 不加会让 mobile 包带上 6 个桌面页，`MobileRouteTree` 不加会让 web 包带上 `MobileSettingsPage`。
+
 **Files:**
 - Create: `apps/dsa-web/src/routes/WebRouteTree.tsx`
 - Create: `apps/dsa-web/src/routes/MobileRouteTree.tsx`
@@ -599,15 +603,15 @@ import { Route, Routes } from 'react-router-dom';
 import { Shell } from '../components/common';
 import { RouteOutletBoundary } from '../components/layout/RouteBoundary';
 
-const HomePage = lazy(() => import('../pages/HomePage'));
-const BacktestPage = lazy(() => import('../pages/BacktestPage'));
-const SettingsPage = lazy(() => import('../pages/SettingsPage'));
-const NotFoundPage = lazy(() => import('../pages/NotFoundPage'));
-const ChatPage = lazy(() => import('../pages/ChatPage'));
-const PortfolioPage = lazy(() => import('../pages/PortfolioPage'));
-const AlertsPage = lazy(() => import('../pages/AlertsPage'));
-const TokenUsagePage = lazy(() => import('../pages/TokenUsagePage'));
-const StockScreeningPage = lazy(() => import('../pages/StockScreeningPage'));
+const HomePage = /* @__PURE__ */ lazy(() => import('../pages/HomePage'));
+const BacktestPage = /* @__PURE__ */ lazy(() => import('../pages/BacktestPage'));
+const SettingsPage = /* @__PURE__ */ lazy(() => import('../pages/SettingsPage'));
+const NotFoundPage = /* @__PURE__ */ lazy(() => import('../pages/NotFoundPage'));
+const ChatPage = /* @__PURE__ */ lazy(() => import('../pages/ChatPage'));
+const PortfolioPage = /* @__PURE__ */ lazy(() => import('../pages/PortfolioPage'));
+const AlertsPage = /* @__PURE__ */ lazy(() => import('../pages/AlertsPage'));
+const TokenUsagePage = /* @__PURE__ */ lazy(() => import('../pages/TokenUsagePage'));
+const StockScreeningPage = /* @__PURE__ */ lazy(() => import('../pages/StockScreeningPage'));
 
 const WebRouteTree = () => (
   <Routes>
@@ -644,9 +648,9 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { MobileShell } from '../components/layout/MobileShell';
 import { RouteOutletBoundary } from '../components/layout/RouteBoundary';
 
-const HomePage = lazy(() => import('../pages/HomePage'));
-const ChatPage = lazy(() => import('../pages/ChatPage'));
-const MobileSettingsPage = lazy(() => import('../pages/MobileSettingsPage'));
+const HomePage = /* @__PURE__ */ lazy(() => import('../pages/HomePage'));
+const ChatPage = /* @__PURE__ */ lazy(() => import('../pages/ChatPage'));
+const MobileSettingsPage = /* @__PURE__ */ lazy(() => import('../pages/MobileSettingsPage'));
 
 const MobileRouteTree = () => (
   <Routes>
@@ -688,7 +692,7 @@ import MobileRouteTree from './routes/MobileRouteTree';
 import WebRouteTree from './routes/WebRouteTree';
 import './App.css';
 
-const LoginPage = lazy(() => import('./pages/LoginPage'));
+const LoginPage = /* @__PURE__ */ lazy(() => import('./pages/LoginPage'));
 
 const AppContent: React.FC = () => {
   const location = useLocation();
