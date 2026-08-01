@@ -1705,6 +1705,14 @@ git commit -m "feat(web): add mobile settings page and first-run server setup"
 
 建立 `apps/dsa-mobile/`，生成 Android 工程并产出可安装的调试包。这是第一次能在真机上验证的节点。
 
+> **实施中发现并已修正（三处）：**
+>
+> 1. **实际装到的是 Capacitor 8（不是计划假设的 7），它要求 `compileSdkVersion = targetSdkVersion = 36`**（见生成的 `android/variables.gradle`，`minSdkVersion = 24`）。因此 SDK 必须装 `platforms;android-36` 与 `build-tools;36.0.0`；只装 35 会构建失败。计划原文没写具体 API level 是对的（让 npm 解析版本），但排障文档里要写明「以 `variables.gradle` 的 `compileSdkVersion` 为准」。
+> 2. **`capacitor.config.ts` 需要 `apps/dsa-mobile` 本地安装 `typescript`**，否则 `npx cap add android` 直接失败：`Could not find installation of TypeScript`。需 `npm install -D typescript`。
+> 3. **SDK 不要装在 `C:\Program Files (x86)` 下。** 该目录需管理员权限，`sdkmanager` 安装组件与 `mv` 均会 `Permission denied`；且路径含空格与括号，对 Gradle 是已知风险。实测可用位置：`C:\Android\Sdk`。另外 cmdline-tools 必须落在 `<sdk>\cmdline-tools\latest\`，少这一层会报 `Could not determine SDK root`。
+>
+> **`android/local.properties`** 需写 `sdk.dir=C\:\\Android\\Sdk`（该文件已在 `.gitignore` 中，机器相关，不入库）。
+
 **Files:**
 - Create: `apps/dsa-mobile/package.json`
 - Create: `apps/dsa-mobile/capacitor.config.ts`
