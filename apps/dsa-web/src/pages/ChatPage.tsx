@@ -5,8 +5,9 @@ import remarkGfm from 'remark-gfm';
 import { cn } from '../utils/cn';
 import { agentApi } from '../api/agent';
 import { systemConfigApi } from '../api/systemConfig';
-import { ApiErrorAlert, Badge, Button, ConfirmDialog, EmptyState, InlineAlert, ScrollArea, Tooltip } from '../components/common';
+import { ApiErrorAlert, Badge, Button, Collapsible, ConfirmDialog, EmptyState, InlineAlert, ScrollArea, Tooltip } from '../components/common';
 import { getParsedApiError } from '../api/error';
+import { IS_MOBILE_APP } from '../appTarget';
 import type { SkillInfo } from '../api/agent';
 import { DashboardStateBlock } from '../components/dashboard';
 import {
@@ -51,6 +52,35 @@ type ActiveStockResolution = {
   context: ActiveStockContext;
   useForCurrentSend: boolean;
 };
+
+/**
+ * Markdown 表格在窄屏下会被容器压到一列一个字宽，必须让表格自己横向滚动，
+ * 而不是压缩列宽。挂在渲染器上而不是全局 CSS，避免影响其他页面的表格。
+ */
+const CHAT_MARKDOWN_COMPONENTS = {
+  table: ({ children, ...props }: React.ComponentPropsWithoutRef<'table'>) => (
+    <div className="chat-table-scroll">
+      <table {...props}>{children}</table>
+    </div>
+  ),
+};
+
+type SkillPanelShellProps = {
+  title: string;
+  children: React.ReactNode;
+};
+
+/**
+ * 移动端把策略面板收进折叠区。
+ *
+ * 14 个策略复选框常驻展开会占掉竖屏近一半高度，把消息区挤成顶部一条。
+ * 桌面端宽度充足，保持原样直接渲染。
+ */
+const SkillPanelShell: React.FC<SkillPanelShellProps> = ({ title, children }) => (
+  IS_MOBILE_APP
+    ? <Collapsible title={title} className="w-full">{children}</Collapsible>
+    : <>{children}</>
+);
 
 const getMessageSkillNames = (msg: Message): string[] => {
   if (msg.skillNames?.length) return msg.skillNames;
@@ -1157,7 +1187,7 @@ const ChatPage: React.FC = () => {
                           </button>
                         </div>
                         <div className="chat-prose pr-20 sm:pr-24">
-                          <Markdown remarkPlugins={[remarkGfm]}>
+                          <Markdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>
                             {msg.content}
                           </Markdown>
                         </div>
@@ -1279,6 +1309,9 @@ const ChatPage: React.FC = () => {
                 />
               ) : null}
             {skills.length > 0 && (
+              <SkillPanelShell
+                title={selectedSkillIds.length === 0 ? '策略：通用分析' : `策略：已选 ${selectedSkillIds.length} 项`}
+              >
               <div className="flex flex-wrap items-start gap-x-5 gap-y-2">
                 <span className="text-xs text-muted-text font-medium uppercase tracking-wider flex-shrink-0 mt-1">
                   策略
@@ -1332,6 +1365,7 @@ const ChatPage: React.FC = () => {
                   );
                 })}
               </div>
+              </SkillPanelShell>
             )}
 
             {activeStockCode && (

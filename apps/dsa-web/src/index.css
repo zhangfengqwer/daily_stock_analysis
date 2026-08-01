@@ -2311,6 +2311,19 @@ textarea {
    Chat Page Markdown Styles (.chat-prose)
    ========================================= */
 
+/* Markdown 表格在窄屏（尤其移动端）会被压到一列一个字宽。
+   让表格保持自身内容宽度，由外层容器横向滚动，而不是压缩列。 */
+.chat-prose .chat-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-prose .chat-table-scroll > table {
+  width: max-content;
+  min-width: 100%;
+}
+
 .chat-prose {
   --chat-prose-fg: hsl(var(--foreground) / 0.86);
   --chat-prose-link: hsl(var(--primary));
