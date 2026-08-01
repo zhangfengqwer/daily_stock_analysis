@@ -54,6 +54,15 @@ class AppCorsConfigTestCase(unittest.TestCase):
         self.assertIn("http://localhost:5173", cors.kwargs["allow_origins"])
         self.assertTrue(cors.kwargs["allow_credentials"])
 
+    def test_capacitor_origin_is_allowed_by_default(self):
+        env = {"CORS_ALLOW_ALL": "false", "CORS_ORIGINS": ""}
+        with patch.dict(os.environ, env, clear=False):
+            app = self._build_app()
+
+        cors = next(m for m in app.user_middleware if m.cls is CORSMiddleware)
+        self.assertIn("https://localhost", cors.kwargs["allow_origins"])
+        self.assertTrue(cors.kwargs["allow_credentials"])
+
 
 if __name__ == "__main__":
     unittest.main()

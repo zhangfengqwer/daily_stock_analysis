@@ -70,7 +70,7 @@ class AuthSettingsRequest(BaseModel):
 
 
 def _cookie_params(request: Request) -> dict:
-    """Build cookie params including Secure based on request."""
+    """Build cookie params including Secure and SameSite based on request and env."""
     secure = False
     if os.getenv("TRUST_X_FORWARDED_FOR", "false").lower() == "true":
         proto = request.headers.get("X-Forwarded-Proto", "").lower()
@@ -78,6 +78,19 @@ def _cookie_params(request: Request) -> dict:
     else:
         # Check URL scheme when not behind proxy
         secure = request.url.scheme == "https"
+
+    # 移动端 App（Capacitor）的 WebView origin 是 https://localhost，访问公网后端属于跨站，
+    # SameSite=Lax 的 Cookie 不会被携带。此项默认保持 lax，自建者按需显式放开。
+    samesite = os.getenv("ADMIN_SESSION_COOKIE_SAMESITE", "lax").strip().lower()
+    if samesite not in {"lax", "strict", "none"}:
+        logger.warning(
+            "Invalid ADMIN_SESSION_COOKIE_SAMESITE=%r, falling back to 'lax'.",
+            samesite,
+        )
+        samesite = "lax"
+    if samesite == "none":
+        # 浏览器强制要求 SameSite=None 必须搭配 Secure，否则整个 Cookie 会被丢弃。
+        secure = True
 
     try:
         max_age_hours = int(os.getenv("ADMIN_SESSION_MAX_AGE_HOURS", str(SESSION_MAX_AGE_HOURS_DEFAULT)))
@@ -87,7 +100,7 @@ def _cookie_params(request: Request) -> dict:
 
     return {
         "httponly": True,
-        "samesite": "lax",
+        "samesite": samesite,
         "secure": secure,
         "path": "/",
         "max_age": max_age,
