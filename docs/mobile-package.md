@@ -271,6 +271,41 @@ WebView 的 `fetch` 对 DNS 失败、TLS 证书错误与 CORS 拒绝一律抛 `T
 
 创建 `apps/dsa-mobile/android/local.properties` 并写入 `sdk.dir`，见「构建前置条件」一节。
 
+### Gradle 报 `Could not move temporary workspace ... to immutable location`
+
+Gradle 把 transforms 缓存的临时目录原子重命名到最终位置时失败。Windows 上的典型原因是**杀毒软件实时扫描**正在占用刚写入的文件句柄（Windows Defender 即会触发）。
+
+先清理残留的临时目录再重试（目标目录通常并不存在，残留的是带 UUID 后缀的临时目录）：
+
+```powershell
+Remove-Item -Recurse -Force "$env:USERPROFILE\.gradle\caches\*\transforms\*-*-*-*-*"
+```
+
+若反复出现，需在**管理员权限**的 PowerShell 中为 Gradle 缓存与项目目录添加杀软排除项：
+
+```powershell
+Add-MpPreference -ExclusionPath "$env:USERPROFILE\.gradle"
+Add-MpPreference -ExclusionPath "<项目绝对路径>"
+Add-MpPreference -ExclusionProcess "java.exe"
+```
+
+> 排除项会降低对应目录的实时防护强度，属于开发机常规做法，请按自身安全要求评估。
+
+### Gradle 发行版下载极慢
+
+`gradle-wrapper.properties` 中的 `distributionUrl` 指向 `services.gradle.org`，国内访问可能只有几十 KB/s（实测 40 分钟仅下载 35MB / 214MB）。
+
+**不要修改 `gradle-wrapper.properties`**（该文件入库，写死区域性镜像会影响所有人）。改为手动把发行版放进 wrapper 缓存：
+
+```bash
+# 目录名中的 hash 由 distributionUrl 推导，以本机实际存在的为准
+D=~/.gradle/wrapper/dists/gradle-<版本>-all/<hash>
+rm -f "$D"/*.zip.part "$D"/*.zip.lck
+curl -L -o "$D/gradle-<版本>-all.zip" https://mirrors.cloud.tencent.com/gradle/gradle-<版本>-all.zip
+```
+
+Maven 依赖同理，镜像配置应放在**用户级** `~/.gradle/init.gradle`，而非项目内。
+
 ### Gradle 报 compileSdk 版本不匹配
 
 以 `apps/dsa-mobile/android/variables.gradle` 中的 `compileSdkVersion` 为准，用 `sdkmanager` 安装对应的 `platforms;android-<N>` 与 `build-tools;<N>.0.0`。Capacitor 大版本升级时该值会变化。
