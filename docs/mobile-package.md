@@ -237,6 +237,7 @@ apps/dsa-mobile/
 - **无原生推送。** 未接入 FCM / APNs。手机推送继续使用 `src/notification_sender/` 中已有的 ntfy / Gotify / Pushover 渠道，它们各自带有手机客户端。
 - **移动端只有首页与对话两个功能**，其余功能请使用 Web 或桌面端。
 - **必须能访问后端。** 应用不做离线缓存，断网时无法查看历史报告。
+- **对话为整段返回，非逐字流式。** 后端确实以 SSE 推送（`api/v1/endpoints/agent.py` 返回 `StreamingResponse`），但实测在 Android WebView 中内容会在生成结束后一次性出现。功能不受影响，代价是长时间分析期间界面没有进度反馈，且请求需保持连接直到生成完成——弱网或应用切后台时更容易中断，表现为「等待很久后报错」而非逐步输出。排查方向见下方「对话不是逐字输出」一条。
 
 ---
 
@@ -251,6 +252,30 @@ apps/dsa-mobile/
 3. 是否误设了 `CORS_ALLOW_ALL=true`（会导致 `allow_credentials=False`）
 4. 用 `curl -si ... /api/v1/auth/login | grep -i set-cookie` 确认响应同时含 `SameSite=None` 与 `Secure`
 
+### 设了 `ADMIN_AUTH_ENABLED=true`，但 `/api/v1/auth/status` 仍返回 `authEnabled:false`
+
+Docker 部署下最常见的两个原因：
+
+1. **改完 `.env` 只做了 `restart`。** Compose 的 `env_file:` 仅在容器**创建**时注入环境变量，`docker compose restart` 复用同一个容器，读到的仍是旧值。必须重建：
+
+   ```bash
+   docker compose -f ./docker/docker-compose.yml up -d --force-recreate server
+   ```
+
+   验证变量确实进了容器：
+
+   ```bash
+   docker compose -f ./docker/docker-compose.yml exec server printenv | grep ADMIN_
+   ```
+
+2. **同一个键在 `.env` 里出现了两次。** `.env.example` 本身带有 `ADMIN_AUTH_ENABLED=false`，若又在文件末尾追加 `=true`，实际生效值取决于解析顺序。确认只有一行：
+
+   ```bash
+   grep -n '^ADMIN_AUTH_ENABLED=' .env
+   ```
+
+> ⚠️ 此状态下服务是**无密码暴露在公网**的。修复前应先停掉反向代理（`systemctl stop caddy`）或收紧安全组。
+
 ### 对话不是逐字输出，而是等很久后一次性出现
 
 SSE 流式响应在链路上被缓冲。依次检查：
@@ -258,6 +283,38 @@ SSE 流式响应在链路上被缓冲。依次检查：
 1. `capacitor.config.ts` 中**是否误启用了 `CapacitorHttp` 或 `CapacitorCookies`**。这两个插件会 patch `window.fetch` 并整包缓冲响应，直接破坏流式对话。本项目刻意不启用它们，配置文件中有对应注释说明。
 2. 反向代理是否关闭了缓冲。Caddy 需 `flush_interval -1`；Nginx 需 `proxy_buffering off;`。
 3. 是否经过 Cloudflare 代理（橙色云朵）。建议改为 DNS only。
+
+### 登录成功但所有操作都失败，App 提示「无法连接到本地服务 / Failed to fetch」
+
+先分清两种情况：**登录本身失败**（Cookie 问题，见上一条）还是**登录成功、后续操作失败**（CORS 预检问题）。
+
+后者的典型原因是反向代理或中间层拦截了 `OPTIONS` 预检。浏览器发预检时按规范**不携带凭证**，若任何一层要求认证并返回 401，该响应不含 CORS 头，浏览器就会拒绝真正的请求，客户端只能看到无法定位的 `Failed to fetch`。
+
+诊断方法是拿一个已知可用的豁免端点做对照：
+
+```bash
+# 受保护端点
+curl -si -X OPTIONS -H "Origin: https://localhost" \
+  -H "Access-Control-Request-Method: POST" \
+  https://<你的域名>/api/v1/agent/chat/stream | grep -iE "^HTTP|access-control"
+
+# 对照组：登录端点（免认证）
+curl -si -X OPTIONS -H "Origin: https://localhost" \
+  -H "Access-Control-Request-Method: POST" \
+  https://<你的域名>/api/v1/auth/login | grep -iE "^HTTP|access-control"
+```
+
+两者都应返回 **200 且带 `Access-Control-Allow-Origin`**。若受保护端点返回 401，说明预检被拦截。
+
+> 同源的 Web 与桌面端不会发送预检，所以这类问题只在移动端暴露。
+
+### 界面在窄屏下排版异常
+
+已知并已处理的几类（如自行修改 UI 需注意）：
+
+- **Markdown 表格文字竖排**：容器未提供横向滚动时，浏览器会把列压缩到一个字宽。表格应保持自身内容宽度并由外层容器滚动，而非压缩列。
+- **底部操作区占据过多高度**：常驻展开的多选面板在竖屏下会挤压内容区，移动端应折叠，并在折叠标题上保留当前选中状态。
+- **正文宽度偏窄**：为绝对定位的悬浮按钮预留的内边距在手机上占比过高，移动端宜改为常规流布局。
 
 ### 连接测试报「无法连接」但地址看起来没问题
 
