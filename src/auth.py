@@ -67,14 +67,26 @@ def _get_credential_path() -> Path:
 
 
 def _is_auth_enabled_from_env() -> bool:
-    """Read ADMIN_AUTH_ENABLED from .env file."""
+    """Resolve ADMIN_AUTH_ENABLED from the .env file, falling back to the environment.
+
+    The `.env` file is read first because the settings page rewrites it to toggle
+    auth at runtime, and the already-loaded process environment would not reflect
+    that change.
+
+    When the file is absent the process environment is used instead. Docker
+    deployments inject configuration via Compose `env_file:` and deliberately do
+    not mount `.env` into the container (a single-file mount would break the
+    atomic replace used when saving config), so without this fallback auth could
+    never be enabled there.
+    """
     _ensure_env_loaded()
     env_file = os.getenv("ENV_FILE")
     env_path = Path(env_file) if env_file else Path(__file__).resolve().parent.parent / ".env"
-    if not env_path.exists():
-        return False
-    values = dotenv_values(env_path)
-    val = (values.get("ADMIN_AUTH_ENABLED") or "").strip().lower()
+    if env_path.exists():
+        raw = dotenv_values(env_path).get("ADMIN_AUTH_ENABLED")
+    else:
+        raw = os.getenv("ADMIN_AUTH_ENABLED")
+    val = (raw or "").strip().lower()
     return val in ("true", "1", "yes")
 
 

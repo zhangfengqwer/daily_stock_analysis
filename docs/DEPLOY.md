@@ -239,6 +239,20 @@ ADMIN_SESSION_COOKIE_SAMESITE=none
 TRUST_X_FORWARDED_FOR=true
 ```
 
+> ⚠️ **改完 `.env` 必须重建容器，`restart` 无效。** Compose 的 `env_file:` 只在容器**创建**时注入环境变量，`docker compose restart` 复用同一个容器，读到的仍是旧值：
+>
+> ```bash
+> docker compose -f ./docker/docker-compose.yml up -d --force-recreate server
+> ```
+>
+> 验证变量确实进了容器：
+>
+> ```bash
+> docker compose -f ./docker/docker-compose.yml exec server printenv | grep ADMIN_
+> ```
+>
+> 同一个键在 `.env` 中**不要出现两次**（例如模板里已有 `ADMIN_AUTH_ENABLED=false`，又在末尾追加 `=true`），否则实际生效值取决于解析顺序。用 `grep -n '^ADMIN_AUTH_ENABLED=' .env` 确认只有一行。
+
 `ADMIN_SESSION_COOKIE_SAMESITE` 默认为 `lax`，不设置时 Web 与桌面端行为完全不变；设为 `none` 时后端会强制 `Secure`。`https://localhost` 已在 CORS 默认白名单中，无需配置 `CORS_ORIGINS`。
 
 > ⚠️ **不要设 `CORS_ALLOW_ALL=true`** —— 它会令 `allow_credentials=False`，与 Cookie 认证互斥，等同于关闭认证。

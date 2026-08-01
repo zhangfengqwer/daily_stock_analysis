@@ -227,6 +227,20 @@ ADMIN_SESSION_COOKIE_SAMESITE=none
 TRUST_X_FORWARDED_FOR=true
 ```
 
+> ⚠️ **After editing `.env` you must recreate the container — `restart` is not enough.** Compose injects `env_file:` values as environment variables when the container is **created**; `docker compose restart` reuses the same container and keeps the old values:
+>
+> ```bash
+> docker compose -f ./docker/docker-compose.yml up -d --force-recreate server
+> ```
+>
+> Verify the variables actually reached the container:
+>
+> ```bash
+> docker compose -f ./docker/docker-compose.yml exec server printenv | grep ADMIN_
+> ```
+>
+> Make sure no key appears **twice** in `.env` (the template already ships `ADMIN_AUTH_ENABLED=false`, so appending `=true` at the end leaves two entries and the effective value depends on parse order). Check with `grep -n '^ADMIN_AUTH_ENABLED=' .env`.
+
 `ADMIN_SESSION_COOKIE_SAMESITE` defaults to `lax`; leaving it unset keeps Web and Desktop behavior completely unchanged. When set to `none`, the backend forces `Secure`. `https://localhost` is already in the default CORS allowlist, so `CORS_ORIGINS` needs no configuration.
 
 > ⚠️ **Do not set `CORS_ALLOW_ALL=true`** — it forces `allow_credentials=False`, which is mutually exclusive with cookie authentication and effectively disables auth.
