@@ -45,6 +45,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not is_auth_enabled():
             return await call_next(request)
 
+        # CORS preflight carries no credentials by design, so authenticating it is
+        # impossible. Rejecting it with 401 returns a response without CORS headers,
+        # which the browser surfaces as an opaque "Failed to fetch" on the actual
+        # request. Let it through to CORSMiddleware; a preflight response only
+        # discloses the allowed methods and headers, never data. The real request
+        # that follows is still authenticated below.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         path = request.url.path
         if _path_exempt(path):
             return await call_next(request)

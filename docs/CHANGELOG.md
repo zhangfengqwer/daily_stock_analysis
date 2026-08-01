@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] 认证中间件放行 CORS 预检请求。浏览器按规范发送不带凭证的 `OPTIONS` 预检，原先会被判定未认证并返回 401，该响应不含 CORS 头，导致跨域客户端（移动端 App）的所有需预检请求失败并报出无法定位的 `Failed to fetch`。同源的 Web 与桌面端不发预检，故此前未暴露。实际请求仍照常校验会话。
+
 - [修复] 修复 Docker 部署下无法开启管理员认证的问题。`ADMIN_AUTH_ENABLED` 原先只从 `.env` 文件读取，文件不存在即返回 false；而 Docker 通过 Compose `env_file:` 注入配置且刻意不挂载 `.env`，导致该开关在容器中恒为关闭、服务在公网上无密码暴露。现改为文件不存在时回退读取进程环境变量，文件存在时行为不变（保留设置页运行时切换认证的能力）。
 
 - [修复] 将 `longbridge` 移出必需依赖，修复 Docker 构建失败。`requirements.txt` 原先要求 `longbridge>=0.2.77`，但该版本从未发布（0.2.x 最高 0.2.74），能满足该约束的 4.x 仅提供 manylinux_2_39 wheel（需 glibc >= 2.39），与基础镜像 `python:3.11-slim-bookworm`（Debian 12，glibc 2.36）互斥。该 SDK 的导入本就在函数内并由 try/except 包裹，未安装时自动降级；需要美股/港股兜底者手动 `pip install "longbridge>=4.4.0"`。
