@@ -1,5 +1,5 @@
 import apiClient from './index';
-import { API_BASE_URL } from '../utils/constants';
+import { getApiBaseUrl } from '../utils/runtimeConfig';
 import { createApiError, isApiRequestError, parseApiError } from './error';
 
 export interface ChatStreamOptions {
@@ -87,7 +87,7 @@ export const agentApi = {
     payload: ChatStreamRequest,
     options?: ChatStreamOptions,
   ): Promise<Response> {
-    const base = API_BASE_URL || '';
+    const base = getApiBaseUrl();
     const url = `${base}/api/v1/agent/chat/stream`;
     try {
       const response = await fetch(url, {

@@ -1,14 +1,18 @@
 import axios from 'axios';
-import { API_BASE_URL } from '../utils/constants';
+import { getApiBaseUrl, onApiBaseUrlChange } from '../utils/runtimeConfig';
 import { attachParsedApiError } from './error';
 
 const apiClient = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: getApiBaseUrl(),
   timeout: 30000,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+onApiBaseUrlChange((url) => {
+  apiClient.defaults.baseURL = url;
 });
 
 apiClient.interceptors.response.use(
