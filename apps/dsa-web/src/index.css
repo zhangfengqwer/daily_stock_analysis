@@ -2311,6 +2311,15 @@ textarea {
    Chat Page Markdown Styles (.chat-prose)
    ========================================= */
 
+/* 复制/导出按钮默认绝对定位在消息右上角，正文需留出 pr-20 给它让位。
+   手机上 80px 约占屏宽 20%，正文被挤得过窄，因此改为常规流排在消息上方，
+   正文得以使用完整宽度。 */
+.chat-message--stacked-actions .chat-message-actions {
+  position: static;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
 /* Markdown 表格在窄屏（尤其移动端）会被压到一列一个字宽。
    让表格保持自身内容宽度，由外层容器横向滚动，而不是压缩列。 */
 .chat-prose .chat-table-scroll {

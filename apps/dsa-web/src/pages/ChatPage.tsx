@@ -1167,7 +1167,7 @@ const ChatPage: React.FC = () => {
                       msg.thinkingSteps &&
                       renderThinkingDetails(msg.thinkingSteps)}
                     {msg.role === 'assistant' ? (
-                      <div className="relative">
+                      <div className={cn('relative', IS_MOBILE_APP && 'chat-message--stacked-actions')}>
                         <div className="chat-message-actions">
                           <button
                             type="button"
@@ -1186,7 +1186,7 @@ const ChatPage: React.FC = () => {
                             导出
                           </button>
                         </div>
-                        <div className="chat-prose pr-20 sm:pr-24">
+                        <div className={cn('chat-prose', !IS_MOBILE_APP && 'pr-20 sm:pr-24')}>
                           <Markdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>
                             {msg.content}
                           </Markdown>
