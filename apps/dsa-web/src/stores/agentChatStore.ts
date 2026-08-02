@@ -31,6 +31,7 @@ export interface Message {
   skillNames?: string[];
   skillName?: string;
   thinkingSteps?: ProgressStep[];
+  streaming?: boolean;
 }
 
 export interface StreamMeta {
@@ -243,6 +244,8 @@ export const useAgentChatStore = create<AgentChatState & AgentChatActions>((set,
       skillNames,
       skillName,
     };
+    const assistantMessageId = `${Date.now()}-assistant`;
+    let streamedContent = '';
 
     set((s) => ({
       messages: [...s.messages, userMessage],
@@ -274,6 +277,53 @@ export const useAgentChatStore = create<AgentChatState & AgentChatActions>((set,
           if (!line.startsWith('data: ')) return;
 
           const event = JSON.parse(line.slice(6)) as ProgressStep;
+          if (event.type === 'connected' || event.type === 'heartbeat') {
+            return;
+          }
+
+          if (event.type === 'content_delta') {
+            if (get().sessionId !== streamSessionId || ac.signal.aborted) return;
+            const delta = typeof event.content === 'string' ? event.content : '';
+            if (!delta) return;
+            streamedContent += delta;
+            set((s) => {
+              const existingIndex = s.messages.findIndex((m) => m.id === assistantMessageId);
+              if (existingIndex >= 0) {
+                return {
+                  messages: s.messages.map((message, index) => (
+                    index === existingIndex
+                      ? { ...message, content: streamedContent }
+                      : message
+                  )),
+                };
+              }
+              return {
+                messages: [
+                  ...s.messages,
+                  {
+                    id: assistantMessageId,
+                    role: 'assistant',
+                    content: streamedContent,
+                    skills: payload.skills,
+                    skill: payload.skills?.[0],
+                    skillNames,
+                    skillName,
+                    streaming: true,
+                  },
+                ],
+              };
+            });
+            return;
+          }
+
+          if (event.type === 'content_reset') {
+            streamedContent = '';
+            set((s) => ({
+              messages: s.messages.filter((message) => message.id !== assistantMessageId),
+            }));
+            return;
+          }
+
           if (event.type === 'done') {
             const doneEvent = event as unknown as StreamFailureEvent;
             if (doneEvent.success === false) {
@@ -325,19 +375,30 @@ export const useAgentChatStore = create<AgentChatState & AgentChatActions>((set,
 
       if (shouldAppend) {
         set((s) => ({
-          messages: [
-            ...s.messages,
-            {
-              id: (Date.now() + 1).toString(),
-              role: 'assistant',
-              content: finalContent || '（无内容）',
-              skills: payload.skills,
-              skill: payload.skills?.[0],
-              skillNames,
-              skillName,
-              thinkingSteps: [...currentProgressSteps],
-            },
-          ],
+          messages: s.messages.some((message) => message.id === assistantMessageId)
+            ? s.messages.map((message) => (
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      content: finalContent || streamedContent || '（无内容）',
+                      thinkingSteps: [...currentProgressSteps],
+                      streaming: false,
+                    }
+                  : message
+              ))
+            : [
+                ...s.messages,
+                {
+                  id: assistantMessageId,
+                  role: 'assistant',
+                  content: finalContent || '（无内容）',
+                  skills: payload.skills,
+                  skill: payload.skills?.[0],
+                  skillNames,
+                  skillName,
+                  thinkingSteps: [...currentProgressSteps],
+                },
+              ],
         }));
       }
 
@@ -348,7 +409,10 @@ export const useAgentChatStore = create<AgentChatState & AgentChatActions>((set,
       if (error instanceof Error && error.name === 'AbortError') {
         // User-initiated abort: silent, no badge
       } else {
-        set({ chatError: getParsedApiError(error) });
+        set((s) => ({
+          messages: s.messages.filter((message) => message.id !== assistantMessageId),
+          chatError: getParsedApiError(error),
+        }));
         const { currentRoute } = get();
         if (currentRoute !== '/chat') {
           set({ completionBadge: true });

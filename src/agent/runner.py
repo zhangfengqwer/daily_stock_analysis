@@ -416,6 +416,7 @@ def run_agent_loop(
     max_wall_clock_seconds: Optional[float] = None,
     tool_call_timeout_seconds: Optional[float] = None,
     stock_scope: Optional[StockScope] = None,
+    stream_content: bool = False,
 ) -> RunLoopResult:
     """Execute the ReAct LLM ↔ tool loop.
 
@@ -433,6 +434,7 @@ def run_agent_loop(
         thinking_labels: Override map of tool_name → friendly label.
         max_wall_clock_seconds: Optional overall timeout budget for the loop.
         tool_call_timeout_seconds: Optional timeout for one parallel tool batch.
+        stream_content: Whether visible model text should be emitted as progress events.
 
     Returns:
         A :class:`RunLoopResult` with the final content, stats, and the
@@ -510,10 +512,32 @@ def run_agent_loop(
             progress_callback({"type": "thinking", "step": step + 1, "message": thinking_msg})
 
         # --- LLM call ---
+        content_started = False
+
+        def forward_stream_event(event: Dict[str, Any]) -> None:
+            nonlocal content_started
+            if event.get("type") == "content_reset":
+                content_started = False
+            elif event.get("type") == "content_delta" and not content_started:
+                content_started = True
+                if progress_callback:
+                    progress_callback({
+                        "type": "generating",
+                        "step": step + 1,
+                        "message": "正在生成最终分析...",
+                    })
+            if progress_callback:
+                progress_callback(event)
+
         response = llm_adapter.call_with_tools(
             messages,
             tool_decls,
             timeout=remaining_timeout,
+            stream_callback=(
+                forward_stream_event
+                if stream_content and progress_callback
+                else None
+            ),
         )
         provider_used = response.provider
         total_tokens += (response.usage or {}).get("total_tokens", 0)
@@ -540,6 +564,8 @@ def run_agent_loop(
 
         if response.tool_calls:
             # ---- tool execution branch ----
+            if content_started and progress_callback:
+                progress_callback({"type": "content_reset"})
             logger.info(
                 "Agent requesting %d tool call(s): %s",
                 len(response.tool_calls),
@@ -622,7 +648,7 @@ def run_agent_loop(
                 time.time() - start_time,
                 total_tokens,
             )
-            if progress_callback:
+            if progress_callback and not content_started:
                 progress_callback({"type": "generating", "step": step + 1, "message": "正在生成最终分析..."})
 
             final_content = response.content or ""

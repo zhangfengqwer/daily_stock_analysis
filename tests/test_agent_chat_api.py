@@ -98,12 +98,18 @@ def test_agent_chat_forwards_stock_context_to_executor(tmp_path: Path) -> None:
 
 def test_agent_chat_stream_forwards_stock_context_to_executor(tmp_path: Path) -> None:
     executor = MagicMock()
-    executor.chat.return_value = SimpleNamespace(
-        success=True,
-        content="ok",
-        error=None,
-        total_steps=1,
-    )
+
+    def stream_chat(**kwargs):
+        kwargs["progress_callback"]({"type": "content_delta", "content": "o"})
+        kwargs["progress_callback"]({"type": "content_delta", "content": "k"})
+        return SimpleNamespace(
+            success=True,
+            content="ok",
+            error=None,
+            total_steps=1,
+        )
+
+    executor.chat.side_effect = stream_chat
     config = SimpleNamespace(is_agent_available=lambda: True)
 
     with patch("api.middlewares.auth.is_auth_enabled", return_value=False):
@@ -123,6 +129,8 @@ def test_agent_chat_stream_forwards_stock_context_to_executor(tmp_path: Path) ->
                 )
 
     assert response.status_code == 200
+    assert response.text.index('"type": "connected"') < response.text.index('"type": "content_delta"')
+    assert response.text.count('"type": "content_delta"') == 2
     assert '"type": "done"' in response.text
     kwargs = executor.chat.call_args.kwargs
     assert kwargs["message"] == "如果不考虑 TTM 呢"

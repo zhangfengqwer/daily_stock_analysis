@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [修复] 问股 SSE 接入 LiteLLM 原生增量输出，Web 与 Android 会在模型生成时持续渲染回答内容；保留工具调用进度、多模型回退和完整响应持久化，并增加连接事件与 20 秒心跳，避免长分析被代理误判为空闲连接。
+
 - [修复] Android 首次配置页和设置页显式设置后端地址输入框的前景色、光标色与 WebKit 文本填充色，避免浅色主题下已保存的服务器 URL 显示为近白色而无法辨认。
 
 - [改进] Android 问股页隐藏 AI 回复及加载状态的头像，回复卡片改为占满可用横向空间并收窄消息区内边距，提升手机窄屏下报告和表格的可读宽度；用户头像与桌面 Web 布局保持不变。

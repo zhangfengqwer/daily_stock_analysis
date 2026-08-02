@@ -57,6 +57,58 @@ beforeEach(() => {
 });
 
 describe('agentChatStore.startStream', () => {
+  it('updates the assistant message incrementally from content_delta events', async () => {
+    const snapshots: string[] = [];
+    const unsubscribe = useAgentChatStore.subscribe((state) => {
+      const assistant = state.messages.find((message) => message.role === 'assistant');
+      if (assistant) snapshots.push(assistant.content);
+    });
+    vi.mocked(agentApi.chatStream).mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"connected","session_id":"session-test"}',
+        'data: {"type":"content_delta","content":"逐"}',
+        'data: {"type":"content_delta","content":"字"}',
+        'data: {"type":"heartbeat"}',
+        'data: {"type":"done","success":true,"content":"逐字"}',
+      ]),
+    );
+
+    await useAgentChatStore
+      .getState()
+      .startStream({ message: '测试流式', session_id: 'session-test' });
+    unsubscribe();
+
+    expect(snapshots).toContain('逐');
+    expect(snapshots).toContain('逐字');
+    expect(useAgentChatStore.getState().messages[1]).toMatchObject({
+      role: 'assistant',
+      content: '逐字',
+      streaming: false,
+    });
+  });
+
+  it('removes provisional content when an agent step switches to tool calls', async () => {
+    vi.mocked(agentApi.chatStream).mockResolvedValue(
+      createStreamResponse([
+        'data: {"type":"content_delta","content":"临时回答"}',
+        'data: {"type":"content_reset"}',
+        'data: {"type":"tool_start","tool":"quote"}',
+        'data: {"type":"content_delta","content":"最终"}',
+        'data: {"type":"done","success":true,"content":"最终答案"}',
+      ]),
+    );
+
+    await useAgentChatStore
+      .getState()
+      .startStream({ message: '分析茅台', session_id: 'session-test' });
+
+    const assistantMessages = useAgentChatStore
+      .getState()
+      .messages.filter((message) => message.role === 'assistant');
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0].content).toBe('最终答案');
+  });
+
   it('appends the user message and final assistant message from the SSE stream', async () => {
     vi.mocked(agentApi.chatStream).mockResolvedValue(
       createStreamResponse([

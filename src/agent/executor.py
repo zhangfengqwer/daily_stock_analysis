@@ -797,6 +797,7 @@ class AgentExecutor:
             progress_callback=progress_callback,
             max_wall_clock_seconds=self.timeout_seconds,
             stock_scope=stock_scope,
+            stream_content=progress_callback is not None,
         )
 
         model_str = loop_result.model

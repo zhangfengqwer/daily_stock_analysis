@@ -22,6 +22,8 @@ from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Keep this test runnable when optional LLM runtime deps are not installed.
@@ -37,7 +39,7 @@ from src.agent.executor import (
     AgentResult,
     _build_market_date_guardrail,
 )
-from src.agent.llm_adapter import LLMResponse, ToolCall
+from src.agent.llm_adapter import LLMResponse, ToolCall, _consume_litellm_stream
 from src.agent.runner import parse_dashboard_json, run_agent_loop, serialize_tool_result
 from src.agent.stock_scope import StockScope, resolve_stock_scope
 from src.agent.tools.registry import ToolRegistry, ToolDefinition, ToolParameter
@@ -182,6 +184,74 @@ def test_agent_system_prompts_require_phase_decision_contract() -> None:
         assert '"data_limitations"' in prompt
         assert "quote/daily_bars/technical 存在 stale、fallback、missing、fetch_failed、partial 或 estimated" in prompt
         assert "`confidence_level` 不得为高" in prompt
+
+
+def test_consume_litellm_stream_forwards_deltas_and_aggregates() -> None:
+    chunks = [
+        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="逐"))]),
+        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="字"))]),
+    ]
+    aggregated = SimpleNamespace(choices=[])
+    events = []
+
+    with patch("src.agent.llm_adapter.litellm.stream_chunk_builder", return_value=aggregated) as builder:
+        result = _consume_litellm_stream(chunks, [{"role": "user", "content": "hi"}], events.append)
+
+    assert result is aggregated
+    assert events == [
+        {"type": "content_delta", "content": "逐"},
+        {"type": "content_delta", "content": "字"},
+    ]
+    builder.assert_called_once_with(chunks, messages=[{"role": "user", "content": "hi"}])
+
+
+def test_consume_litellm_stream_resets_partial_content_on_failure() -> None:
+    first_chunk = SimpleNamespace(
+        choices=[SimpleNamespace(delta=SimpleNamespace(content="半截"))],
+    )
+    events = []
+
+    def broken_stream():
+        yield first_chunk
+        raise RuntimeError("provider disconnected")
+
+    with pytest.raises(RuntimeError, match="provider disconnected"):
+        _consume_litellm_stream(broken_stream(), [], events.append)
+
+    assert events == [
+        {"type": "content_delta", "content": "半截"},
+        {"type": "content_reset"},
+    ]
+
+
+def test_run_agent_loop_forwards_content_deltas_before_completion() -> None:
+    adapter = MagicMock()
+
+    def streamed_completion(*args, **kwargs):
+        callback = kwargs["stream_callback"]
+        callback({"type": "content_delta", "content": "逐"})
+        callback({"type": "content_delta", "content": "字"})
+        return LLMResponse(content="逐字", provider="openai", model="openai/test")
+
+    adapter.call_with_tools.side_effect = streamed_completion
+    events = []
+
+    result = run_agent_loop(
+        messages=[{"role": "user", "content": "hi"}],
+        tool_registry=ToolRegistry(),
+        llm_adapter=adapter,
+        progress_callback=events.append,
+        stream_content=True,
+    )
+
+    assert result.success is True
+    assert result.content == "逐字"
+    assert [event["type"] for event in events] == [
+        "thinking",
+        "generating",
+        "content_delta",
+        "content_delta",
+    ]
 
 
 # ============================================================

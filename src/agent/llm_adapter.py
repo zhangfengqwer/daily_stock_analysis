@@ -11,7 +11,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import litellm
 from litellm import Router
@@ -217,6 +217,45 @@ def _extract_provider_blocks(choice: Any) -> Tuple[List[Dict[str, Any]], Optiona
             if block_type == "text" and text:
                 text_parts.append(str(text))
     return blocks, ("".join(text_parts).strip() or None)
+
+
+def _consume_litellm_stream(
+    response: Iterable[Any],
+    messages: List[Dict[str, Any]],
+    stream_callback: Callable[[Dict[str, Any]], None],
+) -> Any:
+    """Forward visible text deltas and rebuild a complete LiteLLM response."""
+    chunks: List[Any] = []
+    emitted_content = False
+    try:
+        for chunk in response:
+            chunks.append(chunk)
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            content = getattr(delta, "content", None) if delta is not None else None
+            if not isinstance(content, str) or not content:
+                continue
+            emitted_content = True
+            stream_callback({"type": "content_delta", "content": content})
+
+        if not chunks:
+            raise RuntimeError("LiteLLM returned an empty streaming response")
+
+        builder = getattr(litellm, "stream_chunk_builder", None)
+        if not callable(builder):
+            raise RuntimeError("Installed LiteLLM does not support stream aggregation")
+        aggregated = builder(chunks, messages=messages)
+        if aggregated is None:
+            raise RuntimeError("LiteLLM could not aggregate the streaming response")
+        return aggregated
+    except Exception:
+        # A fallback model may be attempted after a mid-stream provider
+        # failure. Remove the abandoned partial answer before retrying.
+        if emitted_content:
+            stream_callback({"type": "content_reset"})
+        raise
 
 
 def _message_trace_matches_target(
@@ -440,6 +479,7 @@ class LLMToolAdapter:
         tools: List[dict],
         provider: Optional[str] = None,
         timeout: Optional[float] = None,
+        stream_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> LLMResponse:
         """Send messages + tool declarations to LLM, return normalized response.
 
@@ -452,7 +492,13 @@ class LLMToolAdapter:
         Returns:
             LLMResponse with either content (final answer) or tool_calls.
         """
-        return self.call_completion(messages, tools=tools, provider=provider, timeout=timeout)
+        return self.call_completion(
+            messages,
+            tools=tools,
+            provider=provider,
+            timeout=timeout,
+            stream_callback=stream_callback,
+        )
 
     def call_text(
         self,
@@ -482,6 +528,7 @@ class LLMToolAdapter:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         timeout: Optional[float] = None,
+        stream_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> LLMResponse:
         """Shared completion path for both tool and text-only calls."""
         config = self._config
@@ -515,6 +562,7 @@ class LLMToolAdapter:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=remaining_timeout,
+                    stream_callback=stream_callback,
                 )
             except Exception as e:
                 if isinstance(e, _resolve_litellm_exception("RateLimitError")):
@@ -566,6 +614,7 @@ class LLMToolAdapter:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         timeout: Optional[float] = None,
+        stream_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> LLMResponse:
         """Call a specific litellm model with OpenAI-format messages and tools."""
         openai_messages = self._convert_messages(messages, target_model=model)
@@ -582,6 +631,8 @@ class LLMToolAdapter:
             call_kwargs["max_tokens"] = max_tokens
         if timeout is not None:
             call_kwargs["timeout"] = timeout
+        if stream_callback is not None:
+            call_kwargs["stream"] = True
 
         if extra:
             call_kwargs["extra_body"] = extra
@@ -644,7 +695,14 @@ class LLMToolAdapter:
                 logger=logger,
             )
 
-        return self._parse_litellm_response(response, model)
+        if stream_callback is None:
+            return self._parse_litellm_response(response, model)
+
+        # LiteLLM returns OpenAI-compatible chunks for all supported providers.
+        # Forward only visible answer text, then rebuild the complete response so
+        # tool calls, provider metadata, usage and fallback semantics stay intact.
+        aggregated = _consume_litellm_stream(response, openai_messages, stream_callback)
+        return self._parse_litellm_response(aggregated, model)
 
     def _get_temperature(self) -> float:
         """Return the raw configured temperature before per-model normalization."""

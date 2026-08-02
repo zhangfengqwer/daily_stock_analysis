@@ -237,7 +237,7 @@ apps/dsa-mobile/
 - **无原生推送。** 未接入 FCM / APNs。手机推送继续使用 `src/notification_sender/` 中已有的 ntfy / Gotify / Pushover 渠道，它们各自带有手机客户端。
 - **移动端只有首页与对话两个功能**，其余功能请使用 Web 或桌面端。
 - **必须能访问后端。** 应用不做离线缓存，断网时无法查看历史报告。
-- **对话为整段返回，非逐字流式。** 后端确实以 SSE 推送（`api/v1/endpoints/agent.py` 返回 `StreamingResponse`），但实测在 Android WebView 中内容会在生成结束后一次性出现。功能不受影响，代价是长时间分析期间界面没有进度反馈，且请求需保持连接直到生成完成——弱网或应用切后台时更容易中断，表现为「等待很久后报错」而非逐步输出。排查方向见下方「对话不是逐字输出」一条。
+- **对话依赖持续的 SSE 连接。** 问股模型调用使用 LiteLLM 原生流式响应，Android WebView 会随 `content_delta` 事件逐步渲染回答；服务端还会发送连接事件和 20 秒心跳。弱网、应用切后台或代理缓冲仍可能中断连接，排查方向见下方「对话不是逐字输出」一条。
 
 ---
 
@@ -283,6 +283,8 @@ SSE 流式响应在链路上被缓冲。依次检查：
 1. `capacitor.config.ts` 中**是否误启用了 `CapacitorHttp` 或 `CapacitorCookies`**。这两个插件会 patch `window.fetch` 并整包缓冲响应，直接破坏流式对话。本项目刻意不启用它们，配置文件中有对应注释说明。
 2. 反向代理是否关闭了缓冲。Caddy 需 `flush_interval -1`；Nginx 需 `proxy_buffering off;`。
 3. 是否经过 Cloudflare 代理（橙色云朵）。建议改为 DNS only。
+
+后端正常时，响应开头应立即出现 `connected`，生成过程中持续出现 `content_delta`，空闲阶段最多约 20 秒会出现一次 `heartbeat`。如果服务端日志显示模型已返回 chunk，但客户端仍整段出现，说明缓冲发生在反向代理或 WebView 网络层。
 
 ### 登录成功但所有操作都失败，App 提示「无法连接到本地服务 / Failed to fetch」
 

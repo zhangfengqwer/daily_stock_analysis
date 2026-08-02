@@ -375,10 +375,14 @@ async def agent_chat_stream(request: ChatRequest):
     """
     Chat with the AI Agent, streaming progress via SSE.
     Each SSE event is a JSON object with a 'type' field:
+      - connected: SSE connection established
       - thinking: AI is deciding next action
       - tool_start: a tool call has begun
       - tool_done: a tool call finished
       - generating: final answer being generated
+      - content_delta: incremental visible answer text
+      - content_reset: discard partial text before a tool/fallback retry
+      - heartbeat: keeps an otherwise idle connection alive
       - done: analysis complete, contains 'content' and 'success'
       - error: error occurred, contains 'message'
     """
@@ -432,15 +436,24 @@ async def agent_chat_stream(request: ChatRequest):
             )
 
     async def event_generator():
+        started_at = loop.time()
+        yield "data: " + json.dumps({
+            "type": "connected",
+            "session_id": session_id,
+        }, ensure_ascii=False) + "\n\n"
         # Start executor in a thread so we don't block the event loop
         fut = loop.run_in_executor(None, run_sync)
         try:
             while True:
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=300.0)
-                except asyncio.TimeoutError:
+                remaining = 300.0 - (loop.time() - started_at)
+                if remaining <= 0:
                     yield "data: " + json.dumps({"type": "error", "message": "分析超时"}, ensure_ascii=False) + "\n\n"
                     break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=min(20.0, remaining))
+                except asyncio.TimeoutError:
+                    yield "data: " + json.dumps({"type": "heartbeat"}, ensure_ascii=False) + "\n\n"
+                    continue
                 yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
                 if event.get("type") in ("done", "error"):
                     break
