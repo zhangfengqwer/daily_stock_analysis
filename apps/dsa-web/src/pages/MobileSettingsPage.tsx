@@ -73,7 +73,7 @@ const MobileSettingsPage: React.FC = () => {
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          className="w-full rounded-xl border border-border/70 bg-card px-3 py-3 text-base"
+          className="mobile-server-url-input w-full rounded-xl border border-border/70 bg-card px-3 py-3 text-base"
           placeholder={t('mobile.settings.serverUrlPlaceholder')}
           value={address}
           onChange={(event) => setAddress(event.target.value)}

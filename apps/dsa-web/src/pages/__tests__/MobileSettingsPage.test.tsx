@@ -38,6 +38,15 @@ describe('MobileSettingsPage', () => {
     });
   });
 
+  it('uses the Android WebView-safe text color for the persisted server URL', async () => {
+    localStorage.setItem('dsa.serverAddress', 'https://dsa.example.com');
+    renderPage();
+
+    expect(await screen.findByDisplayValue('https://dsa.example.com')).toHaveClass(
+      'mobile-server-url-input',
+    );
+  });
+
   it('saves the entered address and applies it to the runtime config', async () => {
     const user = userEvent.setup();
     renderPage();

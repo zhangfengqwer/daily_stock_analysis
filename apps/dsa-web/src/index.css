@@ -721,6 +721,18 @@
   -webkit-text-fill-color: var(--input-surface-placeholder, var(--text-muted-text));
 }
 
+/* Keep persisted server URLs readable in Android WebView light and dark themes. */
+.mobile-server-url-input {
+  color: var(--text-primary);
+  caret-color: var(--text-primary);
+  -webkit-text-fill-color: var(--text-primary);
+}
+
+.mobile-server-url-input::placeholder {
+  color: var(--text-muted-text);
+  -webkit-text-fill-color: var(--text-muted-text);
+}
+
 [data-testid="home-dashboard"] .stock-autocomplete .input-surface::placeholder {
   color: hsl(var(--muted-text) / 0.6);
   -webkit-text-fill-color: hsl(var(--muted-text) / 0.6);
