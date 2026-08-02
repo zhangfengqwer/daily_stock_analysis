@@ -5,6 +5,7 @@ import { createParsedApiError } from '../../api/error';
 import { historyApi } from '../../api/history';
 import type { Message } from '../../stores/agentChatStore';
 import ChatPage from '../ChatPage';
+import { getChatMessageLayout } from '../../utils/chatMessageLayout';
 import { extractStockCodeFromMessage, extractStockCodesFromMessage } from '../../utils/chatStockCode';
 
 function createDeferred<T>() {
@@ -192,6 +193,23 @@ beforeEach(() => {
   });
   mockDownloadSession.mockImplementation(() => {});
   mockFormatSessionAsMarkdown.mockReturnValue('# exported session');
+});
+
+describe('getChatMessageLayout', () => {
+  it('hides only the assistant avatar and expands its row in the mobile app', () => {
+    expect(getChatMessageLayout('assistant', true)).toEqual({
+      expandedAssistant: true,
+      showAvatar: false,
+    });
+    expect(getChatMessageLayout('user', true)).toEqual({
+      expandedAssistant: false,
+      showAvatar: true,
+    });
+    expect(getChatMessageLayout('assistant', false)).toEqual({
+      expandedAssistant: false,
+      showAvatar: true,
+    });
+  });
 });
 
 describe('ChatPage', () => {

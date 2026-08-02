@@ -2307,6 +2307,11 @@ textarea {
   border-top-left-radius: 0.125rem;
 }
 
+/* The mobile assistant has no leading avatar, so it uses a regular full-width card. */
+.chat-bubble-ai-mobile {
+  border-top-left-radius: 1rem;
+}
+
 /* =========================================
    Chat Page Markdown Styles (.chat-prose)
    ========================================= */

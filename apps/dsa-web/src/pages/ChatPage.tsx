@@ -27,6 +27,7 @@ import {
 import { isNearBottom } from '../utils/chatScroll';
 import { getReportText } from '../utils/reportLanguage';
 import { extractStockCodesFromMessage } from '../utils/chatStockCode';
+import { getChatMessageLayout } from '../utils/chatMessageLayout';
 import { findMatchingStockCode, includesStockCode, normalizeStockCode } from '../utils/stockCode';
 
 // Quick question examples shown on empty state
@@ -1080,7 +1081,7 @@ const ChatPage: React.FC = () => {
             className="relative z-10 flex-1"
             viewportRef={messagesViewportRef}
             onScroll={handleMessagesScroll}
-            viewportClassName="space-y-6 p-4 md:p-6"
+            viewportClassName={IS_MOBILE_APP ? 'space-y-5 p-2' : 'space-y-6 p-4 md:p-6'}
             testId="chat-message-scroll"
           >
             {messages.length === 0 && !loading ? (
@@ -1122,23 +1123,33 @@ const ChatPage: React.FC = () => {
             ) : (
               messages.map((msg) => {
                 const skillLabel = getMessageSkillLabel(msg);
+                const messageLayout = getChatMessageLayout(msg.role, IS_MOBILE_APP);
                 return (
                 <div
                   key={msg.id}
-                  className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                  className={cn(
+                    'flex',
+                    messageLayout.expandedAssistant ? 'gap-0' : 'gap-4',
+                    msg.role === 'user' && 'flex-row-reverse',
+                  )}
                 >
+                  {messageLayout.showAvatar && (
+                    <div
+                      className={cn(
+                        'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm transition-all',
+                        msg.role === 'user' ? 'chat-avatar-user' : 'chat-avatar-ai'
+                      )}
+                    >
+                      {msg.role === 'user' ? 'U' : 'AI'}
+                    </div>
+                  )}
                   <div
                     className={cn(
-                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow-sm transition-all',
-                      msg.role === 'user' ? 'chat-avatar-user' : 'chat-avatar-ai'
-                    )}
-                  >
-                    {msg.role === 'user' ? 'U' : 'AI'}
-                  </div>
-                  <div
-                    className={cn(
-                      'group/message min-w-0 w-fit max-w-[min(100%,48rem)] overflow-hidden px-5 py-3.5 transition-colors',
-                      msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'
+                      'group/message min-w-0 overflow-hidden transition-colors',
+                      messageLayout.expandedAssistant
+                        ? 'chat-bubble-ai-mobile w-full max-w-none px-3 py-3'
+                        : 'w-fit max-w-[min(100%,48rem)] px-5 py-3.5',
+                      msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai',
                     )}
                   >
                     {msg.role === 'assistant' && skillLabel && (
@@ -1211,11 +1222,20 @@ const ChatPage: React.FC = () => {
             )}
 
             {loading && (
-              <div className="flex gap-4">
-                <div className="w-8 h-8 rounded-full bg-elevated text-foreground flex items-center justify-center flex-shrink-0 text-xs font-bold">
-                  AI
-                </div>
-                <div className="min-w-[200px] max-w-[min(100%,48rem)] overflow-hidden rounded-2xl rounded-tl-sm border border-white/6 bg-card/72 px-5 py-4">
+              <div className={cn('flex', IS_MOBILE_APP ? 'gap-0' : 'gap-4')}>
+                {!IS_MOBILE_APP && (
+                  <div className="w-8 h-8 rounded-full bg-elevated text-foreground flex items-center justify-center flex-shrink-0 text-xs font-bold">
+                    AI
+                  </div>
+                )}
+                <div
+                  className={cn(
+                    'min-w-[200px] overflow-hidden rounded-2xl border border-white/6 bg-card/72',
+                    IS_MOBILE_APP
+                      ? 'w-full max-w-none px-3 py-3'
+                      : 'max-w-[min(100%,48rem)] rounded-tl-sm px-5 py-4',
+                  )}
+                >
                   <div className="flex items-center gap-2.5 text-sm text-secondary-text">
                     <div className="relative w-4 h-4 flex-shrink-0">
                       <div className="absolute inset-0 rounded-full border-2 border-cyan/20" />
