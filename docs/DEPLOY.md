@@ -80,6 +80,29 @@ docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer bash
 docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer python main.py --no-notify
 ```
 
+### 4.1 Linux 一键更新部署
+
+仓库根目录提供 `install.sh`，用于已有 Linux Docker 部署切回/更新 `main`、保护服务器本地的 `docker/docker-compose.yml` 覆盖、重建 `server` 并检查本地与公网健康接口：
+
+```bash
+cd /opt/stock-analyzer
+DOMAIN=vpn.zfzyy.top bash install.sh
+```
+
+脚本默认以脚本所在仓库为 `PROJECT_DIR`，并更新 `main`。`DOMAIN` 不写死；设置后才检查对应 Caddy 站点和公网健康接口。从仓库外运行时显式传入目录与域名：
+
+```bash
+PROJECT_DIR=/opt/stock-analyzer DOMAIN=dsa.example.com bash /path/to/install.sh
+```
+
+默认复用 Docker 缓存，避免每次重新安装全部 Node/Python 依赖。如需排查缓存或执行全量重建：
+
+```bash
+BUILD_NO_CACHE=1 bash install.sh
+```
+
+脚本不会自动改写 `.env` 或 Caddyfile，只会检查移动端认证关键项和 `flush_interval -1`；缺失时输出 warning。若仓库不存在，脚本会克隆 `origin/main`；若 `.env` 不存在，会从 `.env.example` 创建后停止，待完成配置再重新运行。
+
 ### 5. 数据持久化
 
 数据自动保存在宿主机目录：

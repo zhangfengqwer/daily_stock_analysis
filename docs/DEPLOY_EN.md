@@ -76,6 +76,29 @@ docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer bash
 docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer python main.py --no-notify
 ```
 
+### 4.1 One-command Linux update
+
+The repository-root `install.sh` updates an existing Linux Docker deployment to `main`, preserves a server-local `docker/docker-compose.yml` override, rebuilds `server`, and checks local/public health endpoints:
+
+```bash
+cd /opt/stock-analyzer
+DOMAIN=vpn.zfzyy.top bash install.sh
+```
+
+The script uses its own repository directory as `PROJECT_DIR` and deploys `main` by default. `DOMAIN` is intentionally not hard-coded; when set, it enables checks for the matching Caddy site and public health endpoint. When running the script from outside the checkout, pass both values explicitly:
+
+```bash
+PROJECT_DIR=/opt/stock-analyzer DOMAIN=dsa.example.com bash /path/to/install.sh
+```
+
+Docker cache is reused by default. For a full rebuild while diagnosing cache problems:
+
+```bash
+BUILD_NO_CACHE=1 bash install.sh
+```
+
+The script does not edit `.env` or the Caddyfile. It warns about missing Android authentication settings or `flush_interval -1`. If `.env` is absent, it creates one from `.env.example`, stops, and waits for configuration before the next run.
+
 ### 5. Data Persistence
 
 Data is automatically saved to host directories:
