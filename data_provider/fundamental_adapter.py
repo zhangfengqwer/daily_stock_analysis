@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,11 @@ _DIVIDEND_KEYWORD_MAP: Dict[str, List[str]] = {
     "announce_date": ["公告日期", "公告日", "实施公告日", "预案公告日"],
     "report_date": ["报告期", "报告日期", "截止日期", "统计截止日期"],
 }
+
+_THS_STOCK_FUNDS_URL = (
+    "https://stockpage.10jqka.com.cn/stock_page/api/v1/stockpage/funds/"
+)
+_THS_CAPITAL_FLOW_CACHE_TTL_SECONDS = 60.0
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -89,6 +97,23 @@ def _normalize_code(raw: Any) -> str:
         s = s.split(".", 1)[0]
     s = re.sub(r"^(SH|SZ|BJ)", "", s)
     return s
+
+
+def _ths_market_id(stock_code: str) -> str:
+    """Map an A-share code to the market id used by the THS stock-page API."""
+    code = _normalize_code(stock_code).zfill(6)
+    if code.startswith("92"):
+        return "151"
+    if code.startswith(("4", "8")):
+        return "145"
+    if code.startswith(("0", "2", "3")):
+        return "33"
+    return "17"
+
+
+def _sum_available(values: List[Optional[float]]) -> Optional[float]:
+    present = [value for value in values if value is not None]
+    return sum(present) if present else None
 
 
 def _pick_by_keywords(row: pd.Series, keywords: List[str]) -> Optional[Any]:
@@ -264,6 +289,93 @@ def _extract_latest_row(df: pd.DataFrame, stock_code: str) -> Optional[pd.Series
 class AkshareFundamentalAdapter:
     """AkShare adapter for fundamentals, capital flow and dragon-tiger signals."""
 
+    def __init__(self) -> None:
+        self._ths_capital_flow_cache: Dict[str, Tuple[float, Dict[str, Optional[float]]]] = {}
+        self._ths_capital_flow_cache_lock = threading.Lock()
+
+    def _get_ths_stock_flow(
+        self,
+        stock_code: str,
+    ) -> Tuple[Dict[str, Optional[float]], Optional[str]]:
+        """Fetch current main-force flow from the public THS single-stock endpoint."""
+        code = _normalize_code(stock_code).zfill(6)
+        if not re.fullmatch(r"\d{6}", code):
+            return {}, "stockpage_ths:invalid_stock_code"
+
+        now = time.monotonic()
+        with self._ths_capital_flow_cache_lock:
+            cached = self._ths_capital_flow_cache.get(code)
+            if cached and now - cached[0] <= _THS_CAPITAL_FLOW_CACHE_TTL_SECONDS:
+                return dict(cached[1]), None
+
+        try:
+            response = requests.get(
+                _THS_STOCK_FUNDS_URL,
+                params={"code": code, "marketId": _ths_market_id(code)},
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Referer": f"https://stockpage.10jqka.com.cn/{code}/money-flow/",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                },
+                timeout=2.0,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            return {}, f"stockpage_ths:{type(exc).__name__}"
+
+        if not isinstance(payload, dict) or payload.get("status_code") not in (0, "0", None):
+            return {}, "stockpage_ths:invalid_response"
+
+        data = payload.get("data") or {}
+        response_code = _normalize_code(data.get("code"))
+        if response_code and response_code != code:
+            return {}, "stockpage_ths:stock_code_mismatch"
+
+        large_order_flow = (
+            (data.get("fundsData") or {}).get("largeOrderFlow")
+            if isinstance(data, dict)
+            else None
+        )
+        if not isinstance(large_order_flow, dict):
+            return {}, "stockpage_ths:missing_large_order_flow"
+
+        super_inflow = _safe_float(large_order_flow.get("mass_capital_inflow"))
+        super_outflow = _safe_float(large_order_flow.get("mass_capital_outflow"))
+        large_inflow = _safe_float(large_order_flow.get("big_capital_inflow"))
+        large_outflow = _safe_float(large_order_flow.get("big_capital_outflow"))
+        if all(value is not None for value in (super_inflow, super_outflow, large_inflow, large_outflow)):
+            main_net_inflow = (super_inflow + large_inflow) - (super_outflow + large_outflow)
+        else:
+            main_net_inflow = _sum_available(
+                [
+                    _safe_float(large_order_flow.get("mass_capital_net_inflow")),
+                    _safe_float(large_order_flow.get("big_capital_net_inflow")),
+                ]
+            )
+
+        if main_net_inflow is None:
+            return {}, "stockpage_ths:missing_main_net_inflow"
+
+        stock_flow: Dict[str, Optional[float]] = {
+            "main_net_inflow": main_net_inflow,
+            "inflow_5d": None,
+            "inflow_10d": None,
+        }
+        with self._ths_capital_flow_cache_lock:
+            self._ths_capital_flow_cache[code] = (now, dict(stock_flow))
+            if len(self._ths_capital_flow_cache) > 512:
+                oldest_code = min(
+                    self._ths_capital_flow_cache,
+                    key=lambda item: self._ths_capital_flow_cache[item][0],
+                )
+                self._ths_capital_flow_cache.pop(oldest_code, None)
+        return stock_flow, None
+
     def _call_df_candidates(
         self,
         candidates: List[Tuple[str, Dict[str, Any]]],
@@ -425,46 +537,56 @@ class AkshareFundamentalAdapter:
             "errors": [],
         }
 
-        stock_df, stock_source, stock_errors = self._call_df_candidates([
-            ("stock_individual_fund_flow", {"stock": stock_code}),
-            ("stock_individual_fund_flow", {"symbol": stock_code}),
-            ("stock_individual_fund_flow", {}),
-            ("stock_main_fund_flow", {"symbol": stock_code}),
-            ("stock_main_fund_flow", {}),
-        ])
-        result["errors"].extend(stock_errors)
-        if stock_df is not None:
-            row = _extract_latest_row(stock_df, stock_code)
-            if row is not None:
-                net_inflow = _safe_float(_pick_by_keywords(row, ["主力净流入", "净流入", "净额"]))
-                inflow_5d = _safe_float(_pick_by_keywords(row, ["5日", "五日"]))
-                inflow_10d = _safe_float(_pick_by_keywords(row, ["10日", "十日"]))
-                result["stock_flow"] = {
-                    "main_net_inflow": net_inflow,
-                    "inflow_5d": inflow_5d,
-                    "inflow_10d": inflow_10d,
-                }
-                result["source_chain"].append(f"capital_stock:{stock_source}")
+        # The THS single-stock endpoint avoids the all-market pagination and
+        # overseas-cloud blocking seen on EastMoney. It is fast enough to stay
+        # within the agent's bounded capital-flow budget.
+        ths_stock_flow, ths_error = self._get_ths_stock_flow(stock_code)
+        if ths_stock_flow:
+            result["stock_flow"] = ths_stock_flow
+            result["source_chain"].append("capital_stock:stockpage_ths")
+        else:
+            if ths_error:
+                result["errors"].append(ths_error)
+            stock_df, stock_source, stock_errors = self._call_df_candidates([
+                ("stock_individual_fund_flow", {"stock": stock_code}),
+                ("stock_individual_fund_flow", {"symbol": stock_code}),
+                ("stock_individual_fund_flow", {}),
+                ("stock_main_fund_flow", {"symbol": stock_code}),
+                ("stock_main_fund_flow", {}),
+            ])
+            result["errors"].extend(stock_errors)
+            if stock_df is not None:
+                row = _extract_latest_row(stock_df, stock_code)
+                if row is not None:
+                    net_inflow = _safe_float(_pick_by_keywords(row, ["主力净流入", "净流入", "净额"]))
+                    inflow_5d = _safe_float(_pick_by_keywords(row, ["5日", "五日"]))
+                    inflow_10d = _safe_float(_pick_by_keywords(row, ["10日", "十日"]))
+                    result["stock_flow"] = {
+                        "main_net_inflow": net_inflow,
+                        "inflow_5d": inflow_5d,
+                        "inflow_10d": inflow_10d,
+                    }
+                    result["source_chain"].append(f"capital_stock:{stock_source}")
 
-        sector_df, sector_source, sector_errors = self._call_df_candidates([
-            ("stock_sector_fund_flow_rank", {}),
-            ("stock_sector_fund_flow_summary", {}),
-        ])
-        result["errors"].extend(sector_errors)
-        if sector_df is not None:
-            name_col = next((c for c in sector_df.columns if any(k in str(c) for k in ("板块", "行业", "名称", "name"))), None)
-            flow_col = next((c for c in sector_df.columns if any(k in str(c) for k in ("净流入", "主力", "flow", "净额"))), None)
-            if name_col and flow_col:
-                work_df = sector_df[[name_col, flow_col]].copy()
-                work_df[flow_col] = pd.to_numeric(work_df[flow_col], errors="coerce")
-                work_df = work_df.dropna(subset=[flow_col])
-                top_df = work_df.nlargest(top_n, flow_col)
-                bottom_df = work_df.nsmallest(top_n, flow_col)
-                result["sector_rankings"] = {
-                    "top": [{"name": _safe_str(r[name_col]), "net_inflow": float(r[flow_col])} for _, r in top_df.iterrows()],
-                    "bottom": [{"name": _safe_str(r[name_col]), "net_inflow": float(r[flow_col])} for _, r in bottom_df.iterrows()],
-                }
-                result["source_chain"].append(f"capital_sector:{sector_source}")
+            sector_df, sector_source, sector_errors = self._call_df_candidates([
+                ("stock_sector_fund_flow_rank", {}),
+                ("stock_sector_fund_flow_summary", {}),
+            ])
+            result["errors"].extend(sector_errors)
+            if sector_df is not None:
+                name_col = next((c for c in sector_df.columns if any(k in str(c) for k in ("板块", "行业", "名称", "name"))), None)
+                flow_col = next((c for c in sector_df.columns if any(k in str(c) for k in ("净流入", "主力", "flow", "净额"))), None)
+                if name_col and flow_col:
+                    work_df = sector_df[[name_col, flow_col]].copy()
+                    work_df[flow_col] = pd.to_numeric(work_df[flow_col], errors="coerce")
+                    work_df = work_df.dropna(subset=[flow_col])
+                    top_df = work_df.nlargest(top_n, flow_col)
+                    bottom_df = work_df.nsmallest(top_n, flow_col)
+                    result["sector_rankings"] = {
+                        "top": [{"name": _safe_str(r[name_col]), "net_inflow": float(r[flow_col])} for _, r in top_df.iterrows()],
+                        "bottom": [{"name": _safe_str(r[name_col]), "net_inflow": float(r[flow_col])} for _, r in bottom_df.iterrows()],
+                    }
+                    result["source_chain"].append(f"capital_sector:{sector_source}")
 
         has_content = bool(result["stock_flow"] or result["sector_rankings"]["top"] or result["sector_rankings"]["bottom"])
         result["status"] = "partial" if has_content else "not_supported"

@@ -18,7 +18,44 @@ from data_provider.fundamental_adapter import (
     _build_dividend_payload,
     _extract_latest_row,
     _parse_dividend_plan_to_per_share,
+    _ths_market_id,
 )
+
+
+class _FakeResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._payload
+
+
+def _ths_funds_payload(stock_code="600667"):
+    return {
+        "status_code": 0,
+        "status_msg": "",
+        "data": {
+            "code": stock_code,
+            "marketId": "17",
+            "fundsData": {
+                "largeOrderFlow": {
+                    "big_capital_inflow": 884_545_880,
+                    "big_capital_outflow": 1_027_794_530,
+                    "big_capital_net_inflow": -143_248_650,
+                    "mass_capital_inflow": 832_118_460,
+                    "mass_capital_outflow": 1_044_111_710,
+                    "mass_capital_net_inflow": -211_993_250,
+                    "medium_capital_net_inflow": 117_317_630,
+                    "small_capital_net_inflow": 237_924_270,
+                }
+            },
+        },
+    }
 
 
 class TestFundamentalAdapter(unittest.TestCase):
@@ -43,6 +80,77 @@ class TestFundamentalAdapter(unittest.TestCase):
         row = _extract_latest_row(df, "600519")
         self.assertIsNotNone(row)
         self.assertEqual(row["值"], 1)
+
+    def test_ths_market_id_covers_shenzhen_shanghai_and_beijing(self) -> None:
+        self.assertEqual(_ths_market_id("000001"), "33")
+        self.assertEqual(_ths_market_id("300750.SZ"), "33")
+        self.assertEqual(_ths_market_id("600667"), "17")
+        self.assertEqual(_ths_market_id("688981.SH"), "17")
+        self.assertEqual(_ths_market_id("838163"), "145")
+        self.assertEqual(_ths_market_id("920748.BJ"), "151")
+
+    def test_ths_stock_flow_normalizes_main_force_net_inflow_and_caches(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        with patch(
+            "data_provider.fundamental_adapter.requests.get",
+            return_value=_FakeResponse(_ths_funds_payload()),
+        ) as request_get:
+            first, first_error = adapter._get_ths_stock_flow("600667")
+            second, second_error = adapter._get_ths_stock_flow("600667.SH")
+
+        self.assertIsNone(first_error)
+        self.assertIsNone(second_error)
+        self.assertEqual(first, second)
+        self.assertEqual(first["main_net_inflow"], -355_241_900.0)
+        self.assertIsNone(first["inflow_5d"])
+        self.assertIsNone(first["inflow_10d"])
+        self.assertEqual(request_get.call_count, 1)
+        self.assertEqual(request_get.call_args.kwargs["params"], {"code": "600667", "marketId": "17"})
+        self.assertEqual(request_get.call_args.kwargs["timeout"], 2.0)
+
+    def test_capital_flow_uses_ths_without_waiting_for_eastmoney(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        stock_flow = {
+            "main_net_inflow": 12_500_000.0,
+            "inflow_5d": None,
+            "inflow_10d": None,
+        }
+        with patch.object(adapter, "_get_ths_stock_flow", return_value=(stock_flow, None)), \
+                patch.object(adapter, "_call_df_candidates") as call_candidates:
+            result = adapter.get_capital_flow("600667")
+
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["stock_flow"], stock_flow)
+        self.assertEqual(result["source_chain"], ["capital_stock:stockpage_ths"])
+        call_candidates.assert_not_called()
+
+    def test_capital_flow_falls_back_to_eastmoney_when_ths_fails(self) -> None:
+        adapter = AkshareFundamentalAdapter()
+        stock_df = pd.DataFrame(
+            {
+                "股票代码": ["600667"],
+                "主力净流入-净额": [1_500_000.0],
+                "5日主力净流入-净额": [8_000_000.0],
+                "10日主力净流入-净额": [15_000_000.0],
+            }
+        )
+        with patch.object(
+            adapter,
+            "_get_ths_stock_flow",
+            return_value=({}, "stockpage_ths:Timeout"),
+        ), patch.object(
+            adapter,
+            "_call_df_candidates",
+            side_effect=[
+                (stock_df, "stock_individual_fund_flow", []),
+                (None, None, []),
+            ],
+        ):
+            result = adapter.get_capital_flow("600667")
+
+        self.assertEqual(result["stock_flow"]["main_net_inflow"], 1_500_000.0)
+        self.assertIn("capital_stock:stock_individual_fund_flow", result["source_chain"])
+        self.assertIn("stockpage_ths:Timeout", result["errors"])
 
     def test_dragon_tiger_no_match_with_code_column_is_ok(self) -> None:
         adapter = AkshareFundamentalAdapter()
