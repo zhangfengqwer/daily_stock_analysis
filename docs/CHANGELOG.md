@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-- [改进] 新增 Linux `install.sh` 一键更新部署脚本，支持从功能分支安全切回 `main`、备份并恢复服务器专属 Compose 覆盖、使用 Docker 缓存重建 API 服务、检查移动端认证/Caddy SSE 配置及本地与公网健康状态。
+- [改进] 将 Linux `install.sh` 扩展为 Debian/Ubuntu 全流程一键部署器：可自动安装 Docker Compose v2 与 Caddy、克隆或安全更新 `main`、导入并备份 `.env`、补齐 Android HTTPS 认证参数、限制 API 仅监听本机、配置无缓冲 SSE 反向代理、按需放行 UFW 及完成本地/HTTPS/公网健康检查。
 
 - [修复] 问股 SSE 接入 LiteLLM 原生增量输出，Web 与 Android 会在模型生成时持续渲染回答内容；保留工具调用进度、多模型回退和完整响应持久化，并增加连接事件与 20 秒心跳，避免长分析被代理误判为空闲连接。
 

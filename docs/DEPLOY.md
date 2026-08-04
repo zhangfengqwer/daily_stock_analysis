@@ -80,28 +80,34 @@ docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer bash
 docker-compose -f ./docker/docker-compose.yml exec -u dsa stock-analyzer python main.py --no-notify
 ```
 
-### 4.1 Linux 一键更新部署
+### 4.1 Linux 全流程一键部署
 
-仓库根目录提供 `install.sh`，用于已有 Linux Docker 部署切回/更新 `main`、保护服务器本地的 `docker/docker-compose.yml` 覆盖、重建 `server` 并检查本地与公网健康接口：
+仓库根目录的 `install.sh` 面向 Debian/Ubuntu，可在全新主机或已有部署上幂等执行。脚本会自动安装 Docker Compose v2 与 Caddy、克隆或安全更新 `main`、导入并备份 `.env`、补齐 Android HTTPS 认证项、将 API 端口限制到 `127.0.0.1`、配置带 `flush_interval -1` 的 Caddy 站点、重建 `server` 并检查健康状态。
+
+先把本地 `.env` 上传到服务器，然后在服务器下载并检查脚本。全新主机执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zhangfengqwer/daily_stock_analysis/main/install.sh -o /tmp/dsa-install.sh
+less /tmp/dsa-install.sh
+sudo env DOMAIN=dsa.example.com PROJECT_DIR=/opt/stock-analyzer ENV_SOURCE=/home/ubuntu/stock-analyzer.env.local bash /tmp/dsa-install.sh
+```
+
+脚本已在当前仓库中时，最后一条就是唯一的部署命令：
+
+```bash
+sudo env DOMAIN=dsa.example.com PROJECT_DIR=/opt/stock-analyzer ENV_SOURCE=/home/ubuntu/stock-analyzer.env.local bash install.sh
+```
+
+后续更新会保留服务器 `.env` 和 Compose 本地绑定，只需：
 
 ```bash
 cd /opt/stock-analyzer
-DOMAIN=vpn.zfzyy.top bash install.sh
+sudo env DOMAIN=dsa.example.com bash install.sh
 ```
 
-脚本默认以脚本所在仓库为 `PROJECT_DIR`，并更新 `main`。`DOMAIN` 不写死；设置后才检查对应 Caddy 站点和公网健康接口。从仓库外运行时显式传入目录与域名：
+默认复用 Docker 缓存。需要全量重建时增加 `BUILD_NO_CACHE=1`。如已有外部 Nginx/Caddy，可使用 `SETUP_CADDY=0`；其他开关见 `bash install.sh --help`。
 
-```bash
-PROJECT_DIR=/opt/stock-analyzer DOMAIN=dsa.example.com bash /path/to/install.sh
-```
-
-默认复用 Docker 缓存，避免每次重新安装全部 Node/Python 依赖。如需排查缓存或执行全量重建：
-
-```bash
-BUILD_NO_CACHE=1 bash install.sh
-```
-
-脚本不会自动改写 `.env` 或 Caddyfile，只会检查移动端认证关键项和 `flush_interval -1`；缺失时输出 warning。若仓库不存在，脚本会克隆 `origin/main`；若 `.env` 不存在，会从 `.env.example` 创建后停止，待完成配置再重新运行。
+云厂商安全组不受服务器脚本控制，仍需提前允许 TCP 80/443；无需向公网开放 API 端口。脚本不会显示或提交 `.env` 中的密钥，备份统一写入 `BACKUP_DIR`（默认是项目同级的 `stock-analyzer-backups`）。
 
 ### 5. 数据持久化
 
